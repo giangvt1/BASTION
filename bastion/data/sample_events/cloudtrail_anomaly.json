@@ -1,0 +1,150 @@
+{
+  "anomaly_trigger": "Unusual API calls at 2:00 AM from foreign IP after phishing click",
+  "user": "alice.johnson",
+  "context_logs": {
+    "Records": [
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "IAMUser",
+          "principalId": "AIDA1234567890EXAMPLE",
+          "arn": "arn:aws:iam::123456789012:user/alice.johnson",
+          "accountId": "123456789012",
+          "userName": "alice.johnson"
+        },
+        "eventTime": "2026-03-10T02:01:15Z",
+        "eventSource": "signin.amazonaws.com",
+        "eventName": "ConsoleLogin",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "Mozilla/5.0",
+        "requestParameters": null,
+        "responseElements": {
+          "ConsoleLogin": "Success"
+        },
+        "additionalEventData": {
+          "MFAUsed": "No",
+          "LoginTo": "https://console.aws.amazon.com"
+        }
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "IAMUser",
+          "principalId": "AIDA1234567890EXAMPLE",
+          "arn": "arn:aws:iam::123456789012:user/alice.johnson",
+          "accountId": "123456789012",
+          "userName": "alice.johnson"
+        },
+        "eventTime": "2026-03-10T02:05:30Z",
+        "eventSource": "s3.amazonaws.com",
+        "eventName": "ListBuckets",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0"
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "IAMUser",
+          "principalId": "AIDA1234567890EXAMPLE",
+          "arn": "arn:aws:iam::123456789012:user/alice.johnson",
+          "accountId": "123456789012",
+          "userName": "alice.johnson"
+        },
+        "eventTime": "2026-03-10T02:08:45Z",
+        "eventSource": "iam.amazonaws.com",
+        "eventName": "ListUsers",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0"
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "IAMUser",
+          "principalId": "AIDA1234567890EXAMPLE",
+          "arn": "arn:aws:iam::123456789012:user/alice.johnson",
+          "accountId": "123456789012",
+          "userName": "alice.johnson"
+        },
+        "eventTime": "2026-03-10T02:12:00Z",
+        "eventSource": "sts.amazonaws.com",
+        "eventName": "AssumeRole",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0",
+        "requestParameters": {
+          "roleArn": "arn:aws:iam::123456789012:role/AdminFullAccess",
+          "roleSessionName": "alice-escalated"
+        },
+        "responseElements": {
+          "credentials": {
+            "accessKeyId": "ASIA1234567890ESCALAT",
+            "expiration": "2026-03-10T03:12:00Z"
+          },
+          "assumedRoleUser": {
+            "assumedRoleId": "AROA1234567890:alice-escalated",
+            "arn": "arn:aws:sts::123456789012:assumed-role/AdminFullAccess/alice-escalated"
+          }
+        }
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "AssumedRole",
+          "principalId": "AROA1234567890:alice-escalated",
+          "arn": "arn:aws:sts::123456789012:assumed-role/AdminFullAccess/alice-escalated",
+          "accountId": "123456789012"
+        },
+        "eventTime": "2026-03-10T02:15:30Z",
+        "eventSource": "s3.amazonaws.com",
+        "eventName": "GetObject",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0",
+        "requestParameters": {
+          "bucketName": "acmebank-customer-credit-cards",
+          "key": "exports/2026-03/full_card_dump.csv"
+        }
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "AssumedRole",
+          "principalId": "AROA1234567890:alice-escalated",
+          "arn": "arn:aws:sts::123456789012:assumed-role/AdminFullAccess/alice-escalated",
+          "accountId": "123456789012"
+        },
+        "eventTime": "2026-03-10T02:18:00Z",
+        "eventSource": "s3.amazonaws.com",
+        "eventName": "GetObject",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0",
+        "requestParameters": {
+          "bucketName": "acmebank-customer-credit-cards",
+          "key": "exports/2026-03/customer_pii.csv"
+        }
+      },
+      {
+        "eventVersion": "1.08",
+        "userIdentity": {
+          "type": "IAMUser",
+          "principalId": "AIDA1234567890EXAMPLE",
+          "arn": "arn:aws:iam::123456789012:user/alice.johnson",
+          "accountId": "123456789012",
+          "userName": "alice.johnson"
+        },
+        "eventTime": "2026-03-10T02:20:00Z",
+        "eventSource": "cloudtrail.amazonaws.com",
+        "eventName": "StopLogging",
+        "awsRegion": "us-east-1",
+        "sourceIPAddress": "185.220.101.45",
+        "userAgent": "aws-cli/2.15.0",
+        "errorCode": "AccessDenied",
+        "errorMessage": "User: arn:aws:iam::123456789012:user/alice.johnson is not authorized to perform: cloudtrail:StopLogging"
+      }
+    ]
+  }
+}
