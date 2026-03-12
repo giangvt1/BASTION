@@ -8,7 +8,7 @@ All agents read from and write to this unified state object.
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any, Optional, TypedDict
+from typing import Annotated, Optional, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import add_messages
@@ -35,11 +35,6 @@ class IOC(TypedDict):
     context: str          # Why this IOC is suspicious
 
 
-def _merge_lists(left: list, right: list) -> list:
-    """Reducer: append new items to existing list (no duplicates by reference)."""
-    return left + right
-
-
 class BastionState(TypedDict):
     """
     Shared state object for the entire LangGraph workflow.
@@ -47,6 +42,10 @@ class BastionState(TypedDict):
     This state flows through all nodes (Supervisor, sub-agents).
     Each node reads what it needs and returns partial updates.
     LangGraph merges updates using the annotated reducers.
+
+    Uses ``operator.add`` (C-level list concatenation) as the reducer
+    for all list fields -- this is LangGraph standard practice and
+    ensures sub-agent results are **appended**, never overwritten.
     """
 
     # ── Input ──
@@ -60,13 +59,16 @@ class BastionState(TypedDict):
     next_agent: str                                    # Supervisor's routing decision
 
     # ── Findings (each agent appends) ──
-    findings: Annotated[list[Finding], _merge_lists]
+    findings: Annotated[list[Finding], operator.add]
 
     # ── IOCs (shared pool across agents) ──
-    iocs: Annotated[list[IOC], _merge_lists]
+    iocs: Annotated[list[IOC], operator.add]
 
     # ── Iteration tracking ──
     iteration_count: int                               # Guard against infinite loops
+
+    # ── Error tracking (agents append errors here) ──
+    error_logs: Annotated[list[str], operator.add]
 
     # ── Final Output ──
     risk_score: Optional[float]                        # 0.0 – 1.0

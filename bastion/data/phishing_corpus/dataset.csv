@@ -1,0 +1,21 @@
+subject,body,label
+"Urgent: Verify your account immediately","Dear customer, your account has been compromised. Click here to verify: https://fakebank-login.com/verify. Failure to verify within 24 hours will result in account suspension.",phishing
+"Your password will expire in 24 hours","Please reset your password immediately at https://secure-reset.phish.net/reset to avoid account lockout. This is your final warning.",phishing
+"Congratulations! You have won $1,000,000","Claim your prize now by providing your social security number and bank account details at https://prize-claim.scam.org/win",phishing
+"Invoice #12345 attached","Please see the attached invoice for your recent purchase. Download the file and review the payment details. Open invoice_12345.exe to view.",phishing
+"Account suspended - action required","Your account has been suspended due to suspicious activity. Log in to your portal at https://suspended-acct.fake.co/login to restore access immediately.",phishing
+"Security Alert: Unauthorized access detected","We detected unauthorized access to your banking profile. Click https://secure-bank-update.com/login to verify your identity now or your account will be permanently locked.",phishing
+"Your tax refund is ready","The IRS has approved your tax refund of $3,500. Submit your bank details at https://irs-refund-portal.com/claim to receive payment within 48 hours.",phishing
+"IT Department: Mandatory password update","All employees must update their credentials through this portal: https://internal-it-update.phish.net/reset. Non-compliance will result in access revocation.",phishing
+"Package delivery failed - reschedule now","Your package could not be delivered. Reschedule delivery at https://fedex-redelivery.scam.co/schedule by providing your credit card for the redelivery fee.",phishing
+"Wire transfer confirmation needed","A wire transfer of $15,000 has been initiated from your account. If you did not authorize this, click https://bank-verify-transfer.com/cancel immediately.",phishing
+"Weekly team standup notes","Hi team, here are the notes from today's standup. We discussed the roadmap and upcoming milestones. Action items tracked in Jira.",legit
+"Your order has been shipped","Your order #98765 has been shipped via FedEx. Track your package at https://www.fedex.com/track?id=98765. Estimated delivery: March 15.",legit
+"Meeting rescheduled to Thursday","Hi, the project review meeting has been moved to Thursday at 3 PM. Please update your calendars. Agenda attached.",legit
+"Monthly newsletter - March 2025","Welcome to our monthly newsletter. This month we cover new product updates and community highlights. Read more on our blog.",legit
+"Re: Quarterly budget review","Attached is the updated budget spreadsheet for Q1. Let me know if you have any questions before the board meeting.",legit
+"GitHub: Pull request merged","Your pull request #142 has been merged into main. CI/CD pipeline completed successfully. Deployment to staging in progress.",legit
+"AWS Cost Alert: Budget threshold reached","Your AWS account spending has reached 80% of the monthly budget ($4,000/$5,000). Review your cost explorer dashboard for details.",legit
+"Team offsite planning - please RSVP","We're planning the Q2 team offsite for April 10-12 in Melbourne. Please RSVP by March 20 using the attached form.",legit
+"Slack notification: New message in #security-alerts","You have 3 unread messages in #security-alerts. Log in to Slack to view the latest updates from the SOC team.",legit
+"Performance review reminder","Your annual performance review is scheduled for next Tuesday at 2 PM with your manager. Please prepare your self-assessment document.",legit

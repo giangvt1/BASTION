@@ -1,5 +1,5 @@
 """
-Supervisor Agent — the "SOC Lead" of the BASTION system.
+Supervisor Agent -- the "SOC Lead" of the BASTION system.
 
 Responsibilities:
 - Evaluate incoming alerts and current state
@@ -9,17 +9,16 @@ Responsibilities:
 
 The Supervisor operates in a loop:
   1. Read event_payload + current findings from state
-  2. Call Bedrock LLM to decide next action
+  2. Call Gemini LLM to decide next action
   3. Return routing decision: DELEGATE_EMAIL | DELEGATE_FORENSIC | DELEGATE_THREAT | SYNTHESIZE
 """
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage
 
 from bastion.logger import get_logger
 from bastion.models.state import BastionState
-from bastion.services.bedrock import invoke_llm
 
 logger = get_logger(__name__)
 
@@ -34,9 +33,9 @@ Your role:
 2. Decide which specialist agent to delegate to next, or synthesize a final report.
 
 Available agents:
-- DELEGATE_EMAIL: Email Analyst — analyzes .eml files for phishing/social engineering
-- DELEGATE_FORENSIC: Forensic Analyst — queries CloudTrail logs, searches VectorDB for attack patterns
-- DELEGATE_THREAT: Threat Intel — scans IOC reputation, checks domain age, assesses risk levels
+- DELEGATE_EMAIL: Email Analyst -- analyzes .eml files for phishing/social engineering
+- DELEGATE_FORENSIC: Forensic Analyst -- queries CloudTrail logs, searches VectorDB for attack patterns
+- DELEGATE_THREAT: Threat Intel -- scans IOC reputation, checks domain age, assesses risk levels
 
 Rules:
 - Delegate to agents based on the event type and what evidence is still needed.
@@ -47,10 +46,9 @@ Rules:
 
 
 def supervisor_node(state: BastionState) -> dict:
-    """
-    Supervisor node for LangGraph.
+    """Supervisor node for LangGraph.
 
-    Reads current state, invokes Bedrock LLM for routing decision,
+    Reads current state, invokes Gemini LLM for routing decision,
     and returns the next_agent field.
     """
     log = logger.bind(agent="supervisor", event_type=state.get("event_type"))
@@ -63,7 +61,6 @@ def supervisor_node(state: BastionState) -> dict:
         iocs_count=len(state.get("iocs", [])),
     )
 
-    # Guard against infinite loops
     if iteration >= MAX_ITERATIONS:
         log.warning("supervisor.max_iterations_reached", max=MAX_ITERATIONS)
         return {
@@ -88,27 +85,40 @@ def supervisor_node(state: BastionState) -> dict:
             f"  - [{ioc.get('ioc_type')}] {ioc.get('value')} (from {ioc.get('source_agent')})"
         )
 
-    user_message = "\n".join(context_parts)
-    user_message += "\n\nDecide the next action. Respond with exactly one of: DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE."
-
-    try:
-        llm_response = invoke_llm(
-            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
-            user_message=user_message,
+    error_logs = state.get("error_logs", [])
+    if error_logs:
+        context_parts.append(f"\nAgent Errors ({len(error_logs)}):")
+        for err in error_logs[-5:]:
+            context_parts.append(f"  - {err}")
+        context_parts.append(
+            "NOTE: Do NOT re-delegate to an agent that has already failed. "
+            "If all relevant agents have errored, respond with SYNTHESIZE."
         )
 
-        # Parse routing decision from LLM response
+    user_message = "\n".join(context_parts)
+    user_message += (
+        "\n\nDecide the next action. Respond with exactly one of: "
+        "DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE."
+    )
+
+    try:
+        from bastion.services.gemini import call_gemini
+
+        llm_response = call_gemini(
+            prompt=user_message,
+            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
+        )
         decision = _parse_routing_decision(llm_response)
         log.info("supervisor.decision", decision=decision)
 
     except Exception:
         log.exception("supervisor.llm_error")
-        decision = "SYNTHESIZE"  # Fail-safe: synthesize with what we have
+        decision = "SYNTHESIZE"
 
     return {
         "next_agent": decision,
         "iteration_count": iteration + 1,
-        "messages": [AIMessage(content=f"[Supervisor] Routing → {decision}")],
+        "messages": [AIMessage(content=f"[Supervisor] Routing -> {decision}")],
     }
 
 
@@ -126,7 +136,6 @@ def _parse_routing_decision(llm_response: str) -> str:
         if decision in response_upper:
             return decision
 
-    # Default to SYNTHESIZE if we can't parse
     logger.warning(
         "supervisor.unparseable_decision",
         raw_response=llm_response[:200],

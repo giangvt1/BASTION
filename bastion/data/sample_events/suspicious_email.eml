@@ -1,0 +1,36 @@
+From: security-alerts@chase-bank.secure-login.com
+To: alice.johnson@acmebank.com
+Subject: URGENT: Your Chase Bank Account Has Been Compromised
+Date: Mon, 10 Mar 2026 08:15:00 +0000
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Message-ID: <fake-msg-001@chase-bank.secure-login.com>
+X-Mailer: PhishKit/2.0
+
+Dear Valued Customer,
+
+We have detected unauthorized access to your Chase Bank online banking account.
+Your account has been temporarily SUSPENDED to protect your financial assets.
+
+IMMEDIATE ACTION REQUIRED:
+To restore access to your account, you must verify your identity within 24 hours
+by clicking the secure link below:
+
+    https://chase-bank.secure-login.com/verify-identity?ref=ACC-2026-0310
+
+If you do not verify your account within 24 hours, your account will be
+PERMANENTLY LOCKED and all pending transactions will be reversed.
+
+For your security, please have the following information ready:
+- Full name and date of birth
+- Social Security Number (last 4 digits)
+- Account number and routing number
+- Online banking username and password
+
+This is an automated security notification. Do not reply to this email.
+
+Sincerely,
+Chase Bank Security Team
+1-800-935-9935 (Fraud Department)
+
+Confidentiality Notice: This email is intended solely for the addressee.

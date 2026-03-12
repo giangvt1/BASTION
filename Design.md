@@ -1,141 +1,169 @@
-# BASTION — System Architecture Design
+# BASTION -- System Architecture Design
 
 > **Banking Agentic Security Threat Intelligence & Orchestration Network**
 >
-> LangGraph + boto3 Multi-Agent Architecture
+> LangGraph + Gemini + boto3 Multi-Agent Architecture
 
 ---
 
 ## Table of Contents
 
-1. [Tổng quan kiến trúc](#1-tổng-quan-kiến-trúc)
-2. [Cấu trúc thư mục dự án](#2-cấu-trúc-thư-mục-dự-án)
-3. [Layer 1 — Input Layer](#3-layer-1--input-layer)
-4. [Layer 2 — Trigger Layer](#4-layer-2--trigger-layer)
-5. [Layer 3 — LangGraph Multi-Agent Core](#5-layer-3--langgraph-multi-agent-core)
-6. [Layer 4 — Storage & Interface Layer](#6-layer-4--storage--interface-layer)
+1. [Tong quan kien truc](#1-tong-quan-kien-truc)
+2. [Cau truc thu muc du an](#2-cau-truc-thu-muc-du-an)
+3. [Layer 1 -- Input Layer](#3-layer-1--input-layer)
+4. [Layer 2 -- Trigger & Pre-Processing Layer (Tier 1)](#4-layer-2--trigger--pre-processing-layer-tier-1)
+5. [Layer 3 -- LangGraph Multi-Agent Core (Tier 2)](#5-layer-3--langgraph-multi-agent-core-tier-2)
+6. [Layer 4 -- Storage & Interface Layer](#6-layer-4--storage--interface-layer)
 7. [Shared State Schema](#7-shared-state-schema)
 8. [LangGraph Graph Definition](#8-langgraph-graph-definition)
-9. [Logging & Observability](#9-logging--observability)
-10. [Cấu hình & Biến môi trường](#10-cấu-hình--biến-môi-trường)
-11. [Dependency Stack](#11-dependency-stack)
+9. [Security & Compliance](#9-security--compliance)
+10. [Logging & Observability](#10-logging--observability)
+11. [Cau hinh & Bien moi truong](#11-cau-hinh--bien-moi-truong)
+12. [Dependency Stack](#12-dependency-stack)
+13. [Production Considerations](#13-production-considerations)
 
 ---
 
-## 1. Tổng quan kiến trúc
+## 1. Tong quan kien truc
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                              AWS Cloud                                         │
-│                                                                                │
-│  ┌──────────────┐   ┌────────────────┐   ┌──────────────────────────────────┐  │
-│  │ INPUT LAYER  │──▶│ TRIGGER LAYER  │──▶│  LANGGRAPH MULTI-AGENT CORE     │  │
-│  │              │   │                │   │                                  │  │
-│  │ • CloudTrail │   │ • EventBridge  │   │  ┌───────────┐                  │  │
-│  │ • S3 Bucket  │   │   (Router)     │   │  │Supervisor │─── Routing ───┐  │  │
-│  │   (.eml/json)│   │                │   │  │  Agent    │               │  │  │
-│  └──────────────┘   └────────────────┘   │  └─────┬─────┘               │  │  │
-│                                          │        │ delegate            │  │  │
-│                                          │  ┌─────▼──────────────────┐  │  │  │
-│                                          │  │   Sub-Agents           │  │  │  │
-│                                          │  │ ┌───────────────────┐  │  │  │  │
-│                                          │  │ │ Email Analyst     │  │  │  │  │
-│                                          │  │ │ Forensic Analyst  │  │  │  │  │
-│                                          │  │ │ Threat Intel      │  │  │  │  │
-│                                          │  │ └───────────────────┘  │  │  │  │
-│                                          │  └────────────────────────┘  │  │  │
-│                                          │        │                     │  │  │
-│                                          │  ┌─────▼─────┐              │  │  │
-│                                          │  │  Shared    │◄─────────────┘  │  │
-│                                          │  │  State     │                 │  │
-│                                          │  │ (DynamoDB) │                 │  │
-│                                          │  └───────────┘                  │  │
-│                                          └──────────────┬─────────────────┘  │
-│                                                         │                    │
-│                                          ┌──────────────▼─────────────────┐  │
-│                                          │  STORAGE & INTERFACE LAYER     │  │
-│                                          │  • DynamoDB (Results)          │  │
-│                                          │  • API Gateway                 │  │
-│                                          │  • SOC Dashboard               │  │
-│                                          └────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------------------+
+|                              AWS Cloud (BASTION)                                 |
+|                                                                                  |
+|  +--------------+   +--------------------------------------------------+        |
+|  | INPUT LAYER  |-->| TRIGGER & PRE-PROCESSING LAYER (TIER 1)          |        |
+|  |              |   |                                                  |        |
+|  | - CloudTrail |   |  [EventBridge] --> [Lambda: Tier 1 Filter]       |        |
+|  | - S3 Bucket  |   |                        | Drop noise (~99%)      |        |
+|  +--------------+   |                        v                         |        |
+|                     |             [Lambda: PII Scrubber]               |        |
+|                     |                        |                         |        |
+|                     |                        v                         |        |
+|                     |            [Amazon SQS (Analysis Queue)]         |        |
+|                     +------------------------+--------------------------+        |
+|                                              | Batch trigger                    |
+|                     +------------------------v--------------------------+        |
+|                     | LANGGRAPH MULTI-AGENT CORE (TIER 2)              |        |
+|                     |                                                  |        |
+|                     |             +-----------+                        |        |
+|                     |             |Supervisor |                        |        |
+|                     |             +-----+-----+                        |        |
+|                     |  [Email Agent] [Forensic Agent] [Threat Intel]   |        |
+|                     +------------------------+--------------------------+        |
+|                                              | Save Report                      |
+|                     +------------------------v--------------------------+        |
+|                     | STORAGE & INTERFACE LAYER                        |        |
+|                     | - DynamoDB (Reports + State Checkpoints)         |        |
+|                     | - API Gateway -> SOC Dashboard                   |        |
+|                     +--------------------------------------------------+        |
++----------------------------------------------------------------------------------+
 ```
 
-Hệ thống được phân thành **4 layer** chính:
+He thong duoc phan thanh **4 layer** chinh:
 
-| Layer | Vai trò | AWS Services / Lib |
+| Layer | Vai tro | AWS Services / Lib |
 |---|---|---|
-| **Input** | Thu thập log & file đáng ngờ | CloudTrail, S3 |
-| **Trigger** | Định tuyến sự kiện, kích hoạt phân tích | EventBridge |
-| **Multi-Agent Core** | Phân tích đa tác tử bằng LLM | LangGraph, Bedrock (boto3), Lambda, DynamoDB |
-| **Storage & Interface** | Lưu trữ kết quả, API, Dashboard | DynamoDB, API Gateway |
+| **Input** | Thu thap log & file dang ngo | CloudTrail, S3 |
+| **Trigger & Pre-Processing (Tier 1)** | Loc nhieu, scrub PII, dem SQS | EventBridge, Lambda, SQS |
+| **Multi-Agent Core (Tier 2)** | Phan tich da tac tu bang LLM | LangGraph, Gemini, Lambda/ECS, DynamoDB |
+| **Storage & Interface** | Luu tru ket qua, API, Dashboard | DynamoDB, API Gateway |
 
 ---
 
-## 2. Cấu trúc thư mục dự án
+## 2. Cau truc thu muc du an
 
 ```
 BASTION/
-├── bastion/                      # Package chính
-│   ├── __init__.py
-│   ├── config.py                 # Cấu hình tập trung (env vars, AWS regions, model IDs)
-│   ├── logger.py                 # Cấu hình structlog + rich (stacktrace đẹp)
-│   │
-│   ├── models/                   # Pydantic models — State, Message schemas
-│   │   ├── __init__.py
-│   │   └── state.py              # BastionState (TypedDict cho LangGraph)
-│   │
-│   ├── agents/                   # Các agent nodes
-│   │   ├── __init__.py
-│   │   ├── supervisor.py         # Supervisor Agent — routing & synthesis
-│   │   ├── email_analyst.py      # Email Analyst Agent
-│   │   ├── forensic_analyst.py   # Forensic Analyst Agent
-│   │   └── threat_intel.py       # Threat Intelligence Agent
-│   │
-│   ├── tools/                    # Tool functions cho agents
-│   │   ├── __init__.py
-│   │   ├── email_tools.py        # Extract domains, URLs, IPs từ .eml
-│   │   ├── forensic_tools.py     # CloudTrail query, VectorDB search
-│   │   ├── threat_intel_tools.py # IOC scanning, reputation check
-│   │   └── aws_helpers.py        # Boto3 wrappers (S3, DynamoDB, Bedrock)
-│   │
-│   ├── graph/                    # LangGraph graph definition
-│   │   ├── __init__.py
-│   │   └── workflow.py           # build_graph() — StateGraph assembly
-│   │
-│   └── services/                 # Tầng tích hợp AWS
-│       ├── __init__.py
-│       ├── bedrock.py            # Amazon Bedrock LLM client (boto3)
-│       ├── dynamodb.py           # DynamoDB read/write
-│       ├── s3.py                 # S3 get object
-│       └── eventbridge.py        # EventBridge handler
-│
-├── lambda_handlers/              # AWS Lambda entry points
-│   ├── trigger_handler.py        # EventBridge → invoke graph
-│   └── api_handler.py            # API Gateway → query results
-│
-├── tests/
-│   ├── unit/
-│   └── integration/
-│
-├── context.md
-├── Design.md                     # (file này)
-├── pyproject.toml
-└── requirements.txt
++-- bastion/                           # Package chinh
+|   +-- __init__.py
+|   +-- config.py                      # Cau hinh tap trung (env vars)
+|   +-- logger.py                      # structlog + rich
+|   |
+|   +-- models/                        # Pydantic models -- State, schemas
+|   |   +-- __init__.py
+|   |   +-- state.py                   # BastionState (TypedDict + reducers)
+|   |
+|   +-- agents/                        # Agent nodes
+|   |   +-- __init__.py
+|   |   +-- supervisor.py              # Supervisor Agent -- routing & synthesis
+|   |   +-- threat_intel.py            # Threat Intelligence Agent
+|   |   +-- email_analyst/             # Email Analyst (Hybrid 2-Tier)
+|   |   |   +-- __init__.py
+|   |   |   +-- node.py               # LangGraph node (Tier 1 -> Tier 2)
+|   |   |   +-- tier1_filter.py       # Static regex filter (no LLM)
+|   |   |   +-- tools.py              # ReAct tools (@tool functions)
+|   |   |   +-- prompts.py            # System + self-reflection prompts
+|   |   |   +-- models.py             # EmailAnalysisOutput (Pydantic)
+|   |   |   +-- README.md
+|   |   +-- forensic_analyst/          # Forensic Analyst (Hybrid 2-Tier)
+|   |       +-- __init__.py
+|   |       +-- node.py               # LangGraph node (Tier 1 -> Tier 2)
+|   |       +-- tier1_filter.py       # Rules + Isolation Forest
+|   |       +-- tools.py              # ReAct tools (Athena, MITRE, DynamoDB)
+|   |       +-- prompts.py            # CoT system prompt
+|   |       +-- sigma_generator.py    # Auto Sigma rule generator
+|   |       +-- models.py             # ForensicAnalysisOutput (Pydantic)
+|   |       +-- README.md
+|   |
+|   +-- tools/                         # Shared tool utilities
+|   |   +-- __init__.py
+|   |   +-- forensic_tools.py         # Generic log parsers
+|   |   +-- aws_helpers.py            # Boto3 wrappers
+|   |
+|   +-- graph/                         # LangGraph graph definition
+|   |   +-- __init__.py
+|   |   +-- workflow.py                # build_graph() + recursion_limit
+|   |
+|   +-- services/                      # AWS + LLM integrations
+|   |   +-- __init__.py
+|   |   +-- gemini.py                  # Gemini LLM client (REST + LangChain)
+|   |   +-- pii_scrubber.py           # PII masking (regex-based)
+|   |   +-- athena.py                  # Athena SQL query + polling
+|   |   +-- dynamodb.py               # DynamoDB read/write
+|   |   +-- s3.py                      # S3 get object
+|   |   +-- eventbridge.py            # EventBridge event parser
+|   |
+|   +-- vector_store/                  # FAISS local vector store
+|   |   +-- __init__.py
+|   |   +-- embeddings.py             # Hash-based deterministic embeddings
+|   |   +-- faiss_client.py           # FAISS index build + search
+|   |   +-- corpus_loader.py          # Phishing corpus + MITRE corpus
+|   |
+|   +-- data/                          # Sample data & corpus CSVs
+|       +-- sample_events/
+|       |   +-- suspicious_email.eml
+|       |   +-- cloudtrail_anomaly.json
+|       +-- phishing_corpus/dataset.csv
+|       +-- mitre_attack_corpus/attack_patterns.csv
+|
++-- lambda_handlers/                   # AWS Lambda entry points
+|   +-- tier1_filter_handler.py        # Lambda 1: EventBridge -> filter -> SQS
+|   +-- trigger_handler.py            # Lambda 2: SQS -> LangGraph analysis
+|   +-- api_handler.py                # API Gateway -> query results
+|
++-- scripts/
+|   +-- run_local.py                   # Local test runner (--email/--forensic/--full)
+|
++-- tests/
+|   +-- unit/
+|   +-- integration/
+|
++-- Design.md                          # (file nay)
++-- pyproject.toml
++-- requirements.txt
++-- .env.example
 ```
 
 ---
 
-## 3. Layer 1 — Input Layer
+## 3. Layer 1 -- Input Layer
 
-**Mục đích**: Thu thập dữ liệu thô từ hạ tầng ngân hàng.
+**Muc dich**: Thu thap du lieu tho tu ha tang ngan hang.
 
-| Source | Loại dữ liệu | Đích |
+| Source | Loai du lieu | Dich |
 |---|---|---|
 | AWS CloudTrail | System & User Logs (JSON) | S3 bucket |
 | Manual Upload / Automated | Suspicious `.eml` files, alert `.json` | S3 bucket |
-
-**Tương tác với code** (boto3):
 
 ```python
 # bastion/services/s3.py
@@ -143,11 +171,9 @@ import boto3
 from bastion.logger import get_logger
 
 logger = get_logger(__name__)
-
 s3_client = boto3.client("s3")
 
 def get_s3_object(bucket: str, key: str) -> bytes:
-    """Lấy raw content từ S3."""
     logger.info("s3.get_object", bucket=bucket, key=key)
     response = s3_client.get_object(Bucket=bucket, Key=key)
     return response["Body"].read()
@@ -155,97 +181,163 @@ def get_s3_object(bucket: str, key: str) -> bytes:
 
 ---
 
-## 4. Layer 2 — Trigger Layer
+## 4. Layer 2 -- Trigger & Pre-Processing Layer (Tier 1)
 
-**Mục đích**: EventBridge nhận events từ S3/CloudTrail → invoke hệ thống phân tích.
+**Muc dich**: Loc nhieu (noise), xoa PII, chi chuyen events dang ngo sang SQS.
+
+### 4.1 Kien truc 2-Lambda Pipeline
+
+```
+EventBridge
+    |
+    v
+[Lambda 1: tier1_filter_handler.py]
+    |-- Parse event (eventbridge.py)
+    |-- Static filter (rule-based, no LLM)
+    |   |-- Email upload? -> Always suspicious
+    |   |-- CloudTrail high-risk API? (AssumeRole, StopLogging, ...)
+    |   |-- CloudTrail recon burst? (ListBuckets, ListUsers, ...)
+    |   |-- AccessDenied errors?
+    |   |-- Clean? -> DROP (log + discard, ~99% events)
+    |
+    |-- PII Scrubber (pii_scrubber.py)
+    |   |-- Credit cards -> [CARD_REDACTED]
+    |   |-- SSN -> [SSN_REDACTED]
+    |   |-- Email addresses -> [EMAIL_REDACTED]
+    |   |-- AWS keys -> [AWS_KEY_REDACTED]
+    |   |-- Internal IPs -> [INTERNAL_IP_REDACTED]
+    |
+    |-- Push to SQS (bastion-analysis-queue)
+    v
+[Amazon SQS]
+    |
+    v
+[Lambda 2: trigger_handler.py]
+    |-- Read SQS batch (or direct EventBridge for legacy)
+    |-- Check remaining Lambda time (timeout protection)
+    |-- Build LangGraph initial state
+    |-- Invoke graph
+    |-- Save report to DynamoDB
+```
+
+### 4.2 Tai sao can SQS?
+
+| Van de | Khong SQS | Co SQS |
+|--------|-----------|--------|
+| Log burst 10k/s | 10k Lambda invoke -> Bill khong lo | Tier 1 loc 99% -> ~100 msg in SQS |
+| LLM rate limit | Bedrock/Gemini bi throttle | SQS + batch = controlled throughput |
+| Retry | Event mat neu Lambda fail | SQS tu dong retry + DLQ |
+| Observability | Kho theo doi | SQS metrics + CloudWatch alarms |
+
+### 4.3 Lambda 1: Tier 1 Filter
 
 ```python
-# lambda_handlers/trigger_handler.py
-from bastion.graph.workflow import build_graph
-from bastion.logger import get_logger
-
-logger = get_logger(__name__)
-
+# lambda_handlers/tier1_filter_handler.py (simplified)
 def handler(event, context):
-    """Entry point: EventBridge → LangGraph."""
-    logger.info("trigger.received", event_source=event.get("source"))
+    parsed = parse_eventbridge_event(event)
+    is_suspicious, reasons = _filter(parsed)
 
-    graph = build_graph()
-    initial_state = {
-        "event_payload": event,
-        "messages": [],
-        "findings": [],
-        "final_report": None,
-    }
-    result = graph.invoke(initial_state)
-    logger.info("trigger.completed", risk_score=result.get("risk_score"))
-    return result
+    if not is_suspicious:
+        return {"action": "dropped"}
+
+    scrubbed = scrub_event_payload(parsed)
+    sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(scrubbed))
+    return {"action": "forwarded"}
+```
+
+### 4.4 Lambda 2: Analysis Handler
+
+```python
+# lambda_handlers/trigger_handler.py (simplified)
+def handler(event, context):
+    if "Records" in event:      # SQS batch
+        for record in event["Records"]:
+            body = json.loads(record["body"])
+            _run_analysis(body, context)
+    else:                        # Direct EventBridge (legacy)
+        parsed = parse_eventbridge_event(event)
+        _run_analysis(scrub_event_payload(parsed), context)
 ```
 
 ---
 
-## 5. Layer 3 — LangGraph Multi-Agent Core
+## 5. Layer 3 -- LangGraph Multi-Agent Core (Tier 2)
 
-Đây là lõi của hệ thống. Sử dụng **LangGraph `StateGraph`** để xây dựng luồng xử lý đa tác tử có trạng thái.
+Day la loi cua he thong. Su dung **LangGraph `StateGraph`** voi Gemini LLM.
 
 ### 5.1 Supervisor Agent
 
-- **Vai trò**: "SOC Lead" — nhận alert ban đầu, quyết định routing, tổng hợp báo cáo cuối.
-- **Không dùng tool trực tiếp**, chỉ đọc state và ra quyết định delegate.
-- Sử dụng Amazon Bedrock (Claude / LLaMA 3) qua boto3 để reasoning.
+- **Vai tro**: "SOC Lead" -- nhan alert, quyet dinh routing, tong hop bao cao.
+- **Khong dung tool truc tiep**, chi doc state va ra quyet dinh delegate.
+- Su dung Gemini qua `langchain-google-genai`.
+- Doc `error_logs` de tranh re-delegate toi agent da fail.
 
 ```python
 # bastion/agents/supervisor.py
-# Pseudo-code — logic cụ thể sẽ define sau
+MAX_ITERATIONS = 10
 
 def supervisor_node(state: BastionState) -> dict:
-    """
-    1. Đọc event_payload & findings hiện tại từ state
-    2. Gọi Bedrock LLM để quyết định:
-       - "DELEGATE_EMAIL"   → route tới Email Analyst
-       - "DELEGATE_FORENSIC"→ route tới Forensic Analyst
-       - "DELEGATE_THREAT"  → route tới Threat Intel
-       - "SYNTHESIZE"       → đủ dữ liệu, tổng hợp report
-    3. Trả về state update với routing decision
-    """
-    ...
+    iteration = state.get("iteration_count", 0)
+
+    if iteration >= MAX_ITERATIONS:
+        return {"next_agent": "SYNTHESIZE", "iteration_count": iteration + 1}
+
+    # Build context including error_logs
+    context = build_context(state)
+    error_logs = state.get("error_logs", [])
+    if error_logs:
+        context += f"\nAgent Errors: {error_logs[-5:]}"
+        context += "\nDo NOT re-delegate to failed agents."
+
+    decision = call_gemini(prompt=context, system_prompt=SYSTEM_PROMPT)
+    return {"next_agent": parse_decision(decision), "iteration_count": iteration + 1}
 ```
 
-### 5.2 Email Analyst Agent
+### 5.2 Email Analyst Agent (Hybrid 2-Tier)
 
-- Phân tích semantic `.eml` files → phát hiện Phishing / Social Engineering.
-- **Tools**: extract domains, URLs, IPs (Lambda hoặc Python functions).
+- **Tier 1**: Static regex filter (11 rules, blacklist, entity extraction) -- no LLM
+- **Tier 2**: ReAct agent (Gemini + 4 tools) + Self-Reflection
+- **Tools**: `extract_eml_components`, `extract_network_entities`, `vector_similarity_search`, `analyze_url_structure`
+- **Output**: `EmailAnalysisOutput` (Pydantic: status, confidence, MITRE tactic, IOCs, reasoning)
+- Chi tiet: xem `bastion/agents/email_analyst/README.md`
 
-### 5.3 Forensic Analyst Agent
+### 5.3 Forensic Analyst Agent (Hybrid 2-Tier)
 
-- Phân tích logs từ CloudTrail, tìm hành vi bất thường.
-- **Tools**: CloudTrail log query, VectorDB search (Pinecone/ChromaDB) để cross-reference attack patterns.
+- **Tier 1**: Rule-based + Isolation Forest (scikit-learn) anomaly detection -- no LLM
+- **Tier 2**: ReAct agent (Gemini + 3 tools) + Sigma rule generation
+- **Tools**: `cloudtrail_query_tool` (Athena SQL + fallback), `mitre_attack_vector_tool` (FAISS RAG), `shared_state_lookup_tool` (DynamoDB baseline)
+- **Output**: `ForensicAnalysisOutput` (Pydantic: status, confidence, kill-chain, MITRE tactics, Sigma rule, reasoning)
+- Chi tiet: xem `bastion/agents/forensic_analyst/README.md`
 
 ### 5.4 Threat Intel Agent
 
-- Nhận IOCs (IPs, domains, hashes) từ các agent khác.
-- **Tools**: IOC reputation scanning, domain age check, risk level assessment từ external sources.
+- Nhan IOCs tu cac agent khac, thuc hien reputation scanning.
+- **Tools** (planned): VirusTotal, AbuseIPDB, WHOIS, IP geolocation
+- Hien tai: skeleton implementation dung Gemini raw text.
 
 ### 5.5 Information Gathering Loop
 
-Các agent hoạt động trong vòng lặp **iterative**:
+```
+Supervisor --> delegate --> Sub-Agent --> update state --> Supervisor
+     |                                                         |
+     +---- (du evidence?) -- YES --> SYNTHESIZE final report   |
+                             NO  --> delegate tiep ------------+
+```
 
-```
-Supervisor ──▶ delegate ──▶ Sub-Agent ──▶ update state ──▶ Supervisor
-     │                                                         │
-     └──── (đủ evidence?) ── YES ──▶ SYNTHESIZE final report   │
-                             NO  ──▶ delegate tiếp ────────────┘
-```
+**Safeguards**:
+- `MAX_ITERATIONS = 10` trong Supervisor
+- `recursion_limit = 25` trong `graph.compile()`
+- `error_logs` giup Supervisor tranh re-delegate toi agent loi
 
 ---
 
-## 6. Layer 4 — Storage & Interface Layer
+## 6. Layer 4 -- Storage & Interface Layer
 
-| Component | Vai trò |
+| Component | Vai tro |
 |---|---|
-| **DynamoDB** (Results table) | Lưu risk scores, synthesized reports, agent reasoning traces |
-| **API Gateway** | RESTful API cung cấp kết quả cho Dashboard |
-| **SOC Dashboard** | UI hiển thị alerts, reasoning process, recommendations (HITL) |
+| **DynamoDB** (Results table) | Luu risk scores, reports, agent reasoning traces, error_logs |
+| **API Gateway** | RESTful API cung cap ket qua cho Dashboard |
+| **SOC Dashboard** | UI hien thi alerts, reasoning process, recommendations (HITL) |
 
 ```python
 # bastion/services/dynamodb.py
@@ -253,7 +345,6 @@ import boto3
 from bastion.logger import get_logger
 
 logger = get_logger(__name__)
-
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table("bastion-results")
 
@@ -266,44 +357,48 @@ def save_report(report_id: str, report_data: dict):
 
 ## 7. Shared State Schema
 
-Sử dụng `TypedDict` cho LangGraph state. Mọi agent đều đọc/ghi vào state duy nhất.
+Su dung `TypedDict` voi **annotated reducers** cho LangGraph state. Dam bao list duoc **append** (khong ghi de).
 
 ```python
 # bastion/models/state.py
-from typing import TypedDict, Optional
-from langgraph.graph import MessagesState
+import operator
+from typing import Annotated, Optional, TypedDict
+from langchain_core.messages import BaseMessage
+from langgraph.graph import add_messages
 
 class BastionState(TypedDict):
-    """Shared state xuyên suốt toàn bộ graph."""
+    # -- Input --
+    event_payload: dict
+    event_type: str                                       # "email" | "cloudtrail" | "s3_upload"
 
-    # --- Input ---
-    event_payload: dict                  # Raw event từ EventBridge
-    event_type: str                      # "email" | "cloudtrail" | "s3_upload"
+    # -- Agent Communication --
+    messages: Annotated[list[BaseMessage], add_messages]
 
-    # --- Agent Communication ---
-    messages: list                       # LangGraph message history
-    next_agent: str                      # Routing decision từ Supervisor
+    # -- Routing --
+    next_agent: str
 
-    # --- Findings (mỗi agent append vào) ---
-    findings: list[dict]                 # Danh sách findings từ tất cả agents
-    # Mỗi finding: {
-    #   "agent": "email_analyst",
-    #   "type": "phishing_indicator",
-    #   "severity": "HIGH",
-    #   "evidence": {...},
-    #   "mitre_tactic": "T1566.001",
-    #   "timestamp": "..."
-    # }
+    # -- Findings (each agent appends via reducer) --
+    findings: Annotated[list[dict], operator.add]
 
-    # --- IOCs (Indicators of Compromise) ---
-    iocs: list[dict]                     # Shared IOC pool
-    # Mỗi IOC: {"type": "ip"|"domain"|"hash", "value": "...", "source_agent": "..."}
+    # -- IOCs (shared pool) --
+    iocs: Annotated[list[dict], operator.add]
 
-    # --- Final Output ---
-    risk_score: Optional[float]          # 0.0 – 1.0
-    final_report: Optional[str]          # Synthesized narrative report
-    report_id: Optional[str]             # DynamoDB key
+    # -- Iteration tracking --
+    iteration_count: int
+
+    # -- Error tracking (agents append errors here) --
+    error_logs: Annotated[list[str], operator.add]
+
+    # -- Final Output --
+    risk_score: Optional[float]
+    final_report: Optional[str]
+    report_id: Optional[str]
 ```
+
+**Key design decisions**:
+- `Annotated[list, operator.add]` -- LangGraph standard practice (C-level `list.__add__`), dam bao **append**, khong overwrite
+- `error_logs` -- Sub-agents ghi loi vao day, Supervisor doc de tranh re-delegate
+- `iteration_count` -- Supervisor tang moi vong, force SYNTHESIZE khi vuot MAX
 
 ---
 
@@ -312,38 +407,17 @@ class BastionState(TypedDict):
 ```python
 # bastion/graph/workflow.py
 from langgraph.graph import StateGraph, END
-from bastion.models.state import BastionState
-from bastion.agents.supervisor import supervisor_node
-from bastion.agents.email_analyst import email_analyst_node
-from bastion.agents.forensic_analyst import forensic_analyst_node
-from bastion.agents.threat_intel import threat_intel_node
-from bastion.logger import get_logger
-
-logger = get_logger(__name__)
-
-
-def route_from_supervisor(state: BastionState) -> str:
-    """Conditional edge: Supervisor quyết định step tiếp theo."""
-    next_agent = state.get("next_agent", "SYNTHESIZE")
-    logger.debug("graph.routing", next_agent=next_agent)
-    return next_agent
-
 
 def build_graph() -> StateGraph:
-    """Xây dựng LangGraph StateGraph cho BASTION."""
-
     graph = StateGraph(BastionState)
 
-    # --- Nodes ---
     graph.add_node("supervisor",       supervisor_node)
     graph.add_node("email_analyst",    email_analyst_node)
     graph.add_node("forensic_analyst", forensic_analyst_node)
     graph.add_node("threat_intel",     threat_intel_node)
 
-    # --- Entry point ---
     graph.set_entry_point("supervisor")
 
-    # --- Conditional routing từ Supervisor ---
     graph.add_conditional_edges(
         "supervisor",
         route_from_supervisor,
@@ -355,12 +429,11 @@ def build_graph() -> StateGraph:
         },
     )
 
-    # --- Mỗi sub-agent xong → quay về Supervisor ---
     graph.add_edge("email_analyst",    "supervisor")
     graph.add_edge("forensic_analyst", "supervisor")
     graph.add_edge("threat_intel",     "supervisor")
 
-    return graph.compile()
+    return graph.compile(recursion_limit=25)
 ```
 
 ### Graph Visualization
@@ -378,8 +451,8 @@ graph TD
     forensic_analyst --> supervisor
     threat_intel --> supervisor
 
-    subgraph "Shared State (DynamoDB)"
-        STATE[(BastionState)]
+    subgraph shared_state ["Shared State (BastionState)"]
+        STATE[(findings + iocs + error_logs)]
     end
 
     supervisor -.read/write.-> STATE
@@ -388,244 +461,276 @@ graph TD
     threat_intel -.read/write.-> STATE
 ```
 
+### Safeguards
+
+| Mechanism | Location | Effect |
+|-----------|----------|--------|
+| `MAX_ITERATIONS = 10` | `supervisor.py` | Force SYNTHESIZE after 10 routing cycles |
+| `recursion_limit = 25` | `workflow.py` | LangGraph raises `GraphRecursionError` after 25 node transitions |
+| `error_logs` | `state.py` | Supervisor avoids re-delegating to failed agents |
+| Timeout detection | `trigger_handler.py` | Saves partial state if Lambda is about to timeout |
+
 ---
 
-## 9. Logging & Observability
+## 9. Security & Compliance
 
-Sử dụng **[`structlog`](https://www.structlog.org/)** + **[`rich`](https://rich.readthedocs.io/)** để tạo structured logs với stacktrace đẹp, dễ debug.
+### 9.1 PII Masking (PCI-DSS)
 
-### Tại sao chọn `structlog` + `rich`?
+**Van de**: LLM khong duoc phep doc so the tin dung, SSN, hay du lieu nhan vien noi bo.
 
-| Feature | Lợi ích |
+**Giai phap**: `bastion/services/pii_scrubber.py` duoc chay **truoc khi data vao LangGraph**:
+
+```python
+from bastion.services.pii_scrubber import scrub_event_payload
+
+parsed_event = parse_eventbridge_event(event)
+scrubbed = scrub_event_payload(parsed_event)   # PII removed
+graph.invoke({"event_payload": scrubbed, ...})
+```
+
+| PII Type | Pattern | Replacement |
+|----------|---------|-------------|
+| Credit Card | `\b(?:\d{4}[\s-]?){3}\d{4}\b` | `[CARD_REDACTED]` |
+| SSN | `\b\d{3}-\d{2}-\d{4}\b` | `[SSN_REDACTED]` |
+| Email | standard email regex | `[EMAIL_REDACTED]` |
+| Phone | various formats | `[PHONE_REDACTED]` |
+| AWS Access Key | `AKIA[0-9A-Z]{16}` | `[AWS_KEY_REDACTED]` |
+| AWS Account ID | context-aware 12-digit | `[ACCT_REDACTED]` |
+| Internal IP | RFC 1918 (10.x, 172.16-31.x, 192.168.x) | `[INTERNAL_IP_REDACTED]` |
+
+### 9.2 Data Flow
+
+```
+Raw Event --> PII Scrubber --> SQS --> LangGraph (LLM chi thay data da scrub)
+                                          |
+                                          v
+                                    DynamoDB (report co PII-scrubbed findings)
+```
+
+**Important**: PII scrubbing xay ra tai **2 diem**:
+1. `tier1_filter_handler.py` -- truoc khi push SQS
+2. `trigger_handler.py` -- fallback neu nhan direct EventBridge
+
+---
+
+## 10. Logging & Observability
+
+Su dung **[`structlog`](https://www.structlog.org/)** + **[`rich`](https://rich.readthedocs.io/)**.
+
+| Feature | Loi ich |
 |---|---|
-| **Structured key-value logs** | Dễ filter, search (agent, event_id, severity) |
-| **Rich console output** | Stacktrace có syntax highlighting, color-coded |
-| **JSON output cho production** | Tương thích CloudWatch / ELK / Datadog |
-| **Context binding** | Bind `agent_name`, `event_id` 1 lần, tự động xuất hiện trong mọi log |
-| **Exception formatting** | Stacktrace đẹp với `rich.traceback` |
+| **Structured key-value logs** | De filter, search (agent, event_id, severity) |
+| **Rich console output** | Stacktrace co syntax highlighting, color-coded |
+| **JSON output cho production** | Tuong thich CloudWatch / ELK / Datadog |
+| **Context binding** | Bind `agent_name`, `event_id` 1 lan, tu dong xuat hien |
 
-### Cấu hình Logger
+### Cau hinh
 
 ```python
 # bastion/logger.py
-import logging
-import sys
 import structlog
-from rich.console import Console
 from rich.traceback import install as install_rich_traceback
 
-# ═══════════════════════════════════════════════════════════
-#  Rich Traceback — stacktrace đẹp cho mọi exception
-# ═══════════════════════════════════════════════════════════
-install_rich_traceback(
-    show_locals=True,        # Hiển thị local variables khi exception
-    width=120,
-    extra_lines=3,           # Thêm 3 dòng context xung quanh lỗi
-    theme="monokai",
-)
+install_rich_traceback(show_locals=True, width=120, extra_lines=3)
 
-# ═══════════════════════════════════════════════════════════
-#  Structlog Configuration
-# ═══════════════════════════════════════════════════════════
-
-def configure_logging(env: str = "development", log_level: str = "DEBUG"):
-    """
-    Cấu hình structlog cho toàn bộ BASTION.
-
-    - development: Console output đẹp với Rich
-    - production:  JSON output cho CloudWatch / log aggregator
-    """
-
-    shared_processors = [
-        structlog.contextvars.merge_contextvars,        # Merge bound context
-        structlog.stdlib.add_log_level,                 # Thêm log level
-        structlog.stdlib.add_logger_name,               # Thêm logger name
-        structlog.processors.TimeStamper(fmt="iso"),    # ISO timestamp
-        structlog.processors.StackInfoRenderer(),       # Stack info nếu có
-        structlog.processors.UnicodeDecoder(),          # Decode unicode
-    ]
-
+def configure_logging(env="development", log_level="DEBUG"):
     if env == "production":
-        # Production: JSON lines cho CloudWatch
         renderer = structlog.processors.JSONRenderer()
     else:
-        # Development: Console đẹp với Rich
-        renderer = structlog.dev.ConsoleRenderer(
-            colors=True,
-            exception_formatter=structlog.dev.rich_traceback,
-        )
-
-    structlog.configure(
-        processors=[
-            *shared_processors,
-            structlog.processors.format_exc_info,       # Format exceptions
-            renderer,
-        ],
-        wrapper_class=structlog.stdlib.BoundLogger,
-        context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use=True,
-    )
-
-    # Cấu hình stdlib logging (cho boto3 và thư viện khác)
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=getattr(logging, log_level.upper()),
-    )
-
-
-def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    """
-    Factory tạo logger với context binding.
-
-    Usage:
-        logger = get_logger(__name__)
-        logger.info("event.name", key1="value1", key2="value2")
-
-        # Bind context cho một session
-        logger = logger.bind(event_id="abc-123", agent="supervisor")
-        logger.info("processing")  # tự động kèm event_id + agent
-    """
-    return structlog.get_logger(name)
+        renderer = structlog.dev.ConsoleRenderer(colors=True)
+    structlog.configure(processors=[...shared_processors, renderer])
 ```
 
-### Ví dụ output
+### Example output
 
-**Development** (console, Rich-rendered):
-
+**Development**:
 ```
-2026-03-12T20:00:01Z [info     ] trigger.received       [trigger_handler] event_source=aws.s3
-2026-03-12T20:00:01Z [info     ] graph.routing          [workflow       ] next_agent=DELEGATE_EMAIL
-2026-03-12T20:00:02Z [info     ] email.analyzing        [email_analyst  ] file=suspect.eml domains=3
-2026-03-12T20:00:03Z [error    ] tool.failed            [email_tools    ] tool=extract_urls
-╭─────────────────── Traceback (most recent call last) ───────────────────╮
-│ bastion/tools/email_tools.py:42 in extract_urls                         │
-│                                                                         │
-│   40 │   headers = parse_headers(raw_eml)                               │
-│   41 │   body = decode_body(headers)                                    │
-│ ❱ 42 │   urls = URL_PATTERN.findall(body)                               │
-│                                                                         │
-│ ┌── locals ──┐                                                          │
-│ │ body = None │                                                         │
-│ └────────────┘                                                          │
-│ TypeError: expected string or bytes-like object, got 'NoneType'         │
-╰─────────────────────────────────────────────────────────────────────────╯
+2026-03-12T20:00:01Z [info] tier1.forwarded_to_sqs  event_type=cloudtrail reasons=["high_risk_api:AssumeRole"]
+2026-03-12T20:00:02Z [info] analysis.start           report_id=abc-123 event_type=cloudtrail
+2026-03-12T20:00:03Z [info] pii_scrubber.scrubbed    redactions=3
 ```
 
-**Production** (JSON, CloudWatch-friendly):
-
+**Production** (JSON):
 ```json
-{"event": "trigger.received", "level": "info", "logger": "trigger_handler", "timestamp": "2026-03-12T20:00:01Z", "event_source": "aws.s3"}
-{"event": "email.analyzing", "level": "info", "logger": "email_analyst", "timestamp": "2026-03-12T20:00:02Z", "file": "suspect.eml", "domains": 3}
-```
-
-### Cách sử dụng trong agent
-
-```python
-# bastion/agents/email_analyst.py
-from bastion.logger import get_logger
-
-logger = get_logger(__name__)
-
-def email_analyst_node(state: BastionState) -> dict:
-    # Bind context cho toàn bộ function
-    log = logger.bind(
-        agent="email_analyst",
-        event_id=state.get("report_id"),
-    )
-
-    log.info("agent.start", event_type=state["event_type"])
-
-    try:
-        # ... logic phân tích ...
-        log.info("agent.complete", findings_count=len(new_findings))
-    except Exception as e:
-        log.exception("agent.error")   # Tự động kèm full stacktrace đẹp
-        raise
-
-    return {"findings": state["findings"] + new_findings}
+{"event": "tier1.forwarded_to_sqs", "level": "info", "event_type": "cloudtrail", "reasons": ["high_risk_api:AssumeRole"]}
 ```
 
 ---
 
-## 10. Cấu hình & Biến môi trường
+## 11. Cau hinh & Bien moi truong
 
 ```python
 # bastion/config.py
-import os
-from dataclasses import dataclass, field
-
 @dataclass
 class BastionConfig:
-    """Cấu hình tập trung cho BASTION."""
-
     # AWS
-    aws_region: str = field(default_factory=lambda: os.getenv("AWS_REGION", "us-east-1"))
-    s3_bucket: str = field(default_factory=lambda: os.getenv("BASTION_S3_BUCKET", "bastion-data-lake"))
-    dynamodb_table: str = field(default_factory=lambda: os.getenv("BASTION_DYNAMODB_TABLE", "bastion-results"))
+    aws_region: str          # default: "us-east-1"
+    s3_bucket: str           # default: "bastion-data-lake"
+    dynamodb_table: str      # default: "bastion-results"
 
-    # Bedrock
-    bedrock_model_id: str = field(default_factory=lambda: os.getenv(
-        "BEDROCK_MODEL_ID", "anthropic.claude-3-sonnet-20240229-v1:0"
-    ))
-    bedrock_max_tokens: int = field(default_factory=lambda: int(os.getenv("BEDROCK_MAX_TOKENS", "4096")))
+    # FAISS (Pre-built index on S3)
+    faiss_index_s3_prefix: str  # e.g. "bastion-indices/faiss" (empty = build at runtime)
 
-    # VectorDB
-    vectordb_provider: str = field(default_factory=lambda: os.getenv("VECTORDB_PROVIDER", "pinecone"))
-    pinecone_api_key: str = field(default_factory=lambda: os.getenv("PINECONE_API_KEY", ""))
-    pinecone_index: str = field(default_factory=lambda: os.getenv("PINECONE_INDEX", "bastion-threats"))
+    # SQS (Buffer Queue)
+    sqs_queue_url: str       # bastion-analysis-queue URL
+
+    # Gemini (LLM)
+    gemini_api_key: str
+    gemini_model: str        # default: "gemini-2.5-flash"
+    gemini_max_tokens: int   # default: 8192
+    gemini_temperature: float # default: 0.1
+
+    # Athena (Forensic queries)
+    athena_database: str     # default: "bastion_cloudtrail"
+    athena_output_bucket: str
 
     # Logging
-    log_level: str = field(default_factory=lambda: os.getenv("LOG_LEVEL", "DEBUG"))
-    environment: str = field(default_factory=lambda: os.getenv("ENVIRONMENT", "development"))
-
-
-config = BastionConfig()
+    log_level: str           # default: "DEBUG"
+    environment: str         # default: "development"
 ```
 
 ---
 
-## 11. Dependency Stack
+## 12. Dependency Stack
 
 ```
 # requirements.txt
 
-# ── LangGraph & LLM ──
+# -- LangGraph & LLM --
 langgraph>=0.2.0
 langchain-core>=0.3.0
-langchain-aws>=0.2.0          # Amazon Bedrock integration
+langchain-google-genai>=2.0.0       # Gemini integration
 
-# ── AWS SDK ──
+# -- AWS SDK --
 boto3>=1.35.0
 botocore>=1.35.0
 
-# ── Logging & Observability ──
+# -- Logging & Observability --
 structlog>=24.0.0
 rich>=13.0.0
 
-# ── Data Validation ──
+# -- Data Validation --
 pydantic>=2.0.0
 
-# ── Vector DB ──
-pinecone-client>=3.0.0        # hoặc chromadb
+# -- Vector Store (FAISS) --
+faiss-cpu>=1.7.0
+numpy>=1.24.0
 
-# ── Email Parsing ──
+# -- Email Parsing --
 mail-parser>=3.15.0
+tldextract>=5.0.0
 
-# ── Utilities ──
+# -- ML (Isolation Forest for Tier 1) --
+scikit-learn>=1.3.0
+
+# -- Utilities --
 python-dotenv>=1.0.0
+requests>=2.28.0
 ```
 
 ---
 
-## Appendix: Luồng xử lý End-to-End
+## 13. Production Considerations
+
+### 13.1 Lambda Timeout (15 min hard limit)
+
+**Van de**: LangGraph chay multi-agent loop + Athena query co the vuot 15 phut.
+
+**Giai phap hien tai** (code-level):
+- `recursion_limit=25` trong `graph.compile()` -- LangGraph tu raise error neu vuot
+- Timeout detection trong `trigger_handler.py` -- check `context.get_remaining_time_in_millis()`, save partial state neu gan het thoi gian
+
+**Giai phap production** (infra-level):
+- **Cach 1**: Chay LangGraph tren **AWS ECS Fargate** thay vi Lambda cho tac vu phan tich sau. Fargate khong co timeout limit.
+- **Cach 2**: Su dung **LangGraph Checkpointer** voi DynamoDB. Graph co the **suspend** va **resume** o cac Lambda invocations khac nhau.
+
+```
+# ECS Fargate deployment (production)
+EventBridge -> Tier 1 Lambda -> SQS -> ECS Fargate Task (LangGraph, no timeout)
+                                           |
+                                           v
+                                       DynamoDB
+```
+
+### 13.2 SQS Dead Letter Queue (DLQ)
+
+Nen cau hinh DLQ cho SQS analysis queue:
+- Sau 3 lan retry that bai -> message vao DLQ
+- CloudWatch alarm khi DLQ co message
+- Manual review / reprocessing
+
+### 13.3 LangGraph Checkpointing
+
+Cho production workloads can suspend/resume:
+
+```python
+from langgraph.checkpoint.memory import MemorySaver   # local dev
+# from langgraph.checkpoint.dynamodb import DynamoDBSaver  # production
+
+checkpointer = MemorySaver()
+graph = build_graph()
+compiled = graph.compile(checkpointer=checkpointer, recursion_limit=25)
+```
+
+### 13.4 Auto-Scaling
+
+| Component | Scaling |
+|-----------|---------|
+| Lambda Tier 1 | Concurrency limit = 1000 (default) |
+| SQS | Managed, infinite scale |
+| Lambda/ECS Tier 2 | SQS batch size = 1-5, controlled throughput |
+| DynamoDB | On-demand capacity |
+
+### 13.5 FAISS Index Bottleneck in Serverless
+
+**Van de**: Lambda/ECS Fargate la stateless. Moi cold start phai nap CSV, chay embedding, build FAISS index tu dau -> ngon RAM, mat vai giay den vai phut.
+
+**Giai phap da implement**:
+
+1. **Pre-built index loading**: `faiss_client.py` ho tro `save_index()` / `load_index()` / `load_index_from_s3()`. Production workflow:
+   - Build index offline (CI/CD hoac local)
+   - Upload `phishing.faiss` + `phishing.labels.json` len S3
+   - Set `FAISS_INDEX_S3_PREFIX=bastion-indices/faiss`
+   - Lambda download vao `/tmp` luc cold start (< 100ms), cache cho warm starts
+
+2. **Local cache**: Sau khi build tu CSV, index duoc save vao `/tmp/faiss_cache/` (Lambda) hoac `.bastion_cache/` (local dev). Cac warm invocations doc tu cache, khong rebuild.
+
+3. **Singleton pattern**: `corpus_loader.py` dung global variables. Mot khi index da load, no ton tai xuyen suot lifetime cua Lambda container.
+
+**Giai phap production nang cao** (neu can scale lon):
+- Chuyen sang **Amazon OpenSearch Serverless** hoac **Qdrant Cloud** (managed vector DB, ~50ms per search, khong can quan ly index)
+- Mount FAISS file qua **Amazon EFS** (shared across Lambda instances)
+
+### 13.6 Athena Query Timeout
+
+**Van de**: Athena co the mat 10-60 giay de scan TB-level logs. `time.sleep()` polling ton tien compute va de bi Lambda timeout.
+
+**Giai phap da implement**:
+- `query_cloudtrail_athena()` co tham so `max_wait_seconds` (default 60s)
+- Neu vuot max_wait, tra ve marker `{"_timeout": True, "message": "..."}` thay vi crash
+- LLM agent nhan duoc message va co the quyet dinh thu tool khac hoac thu lai voi time range hep hon
+
+### 13.7 ML Model Loading (Isolation Forest)
+
+**Van de**: Neu tao `IsolationForest()` instance moi moi event -> ton overhead allocation.
+
+**Giai phap da implement**:
+- IsolationForest instance duoc cache o module-level (`_CACHED_IFOREST`)
+- Tao 1 lan, re-fit per batch (fit nhanh cho small N < 100 records)
+- Cho production voi pre-trained model: load tu S3/EFS qua `joblib.load()` o global scope
+
+---
+
+## Appendix: Luong xu ly End-to-End
 
 ```mermaid
 sequenceDiagram
     participant S3 as S3 (Data Lake)
     participant EB as EventBridge
-    participant Lambda as Lambda Handler
+    participant L1 as Lambda 1 (Tier 1 Filter)
+    participant PII as PII Scrubber
+    participant SQS as SQS Queue
+    participant L2 as Lambda 2 (Analysis)
     participant SV as Supervisor Agent
     participant EA as Email Analyst
     participant FA as Forensic Analyst
@@ -633,26 +738,36 @@ sequenceDiagram
     participant DB as DynamoDB
 
     S3->>EB: S3 PutObject Event (.eml uploaded)
-    EB->>Lambda: Trigger analysis
-    Lambda->>SV: invoke graph(initial_state)
+    EB->>L1: Trigger Tier 1 filter
+    L1->>L1: Static filter (is suspicious?)
 
-    SV->>SV: Evaluate event → DELEGATE_EMAIL
+    alt Clean event
+        L1-->>L1: DROP (log + discard)
+    else Suspicious event
+        L1->>PII: Scrub PII
+        PII->>SQS: Push scrubbed event
+    end
+
+    SQS->>L2: Batch trigger
+    L2->>L2: Check remaining time
+    L2->>SV: invoke graph(initial_state)
+
+    SV->>SV: Evaluate event -> DELEGATE_EMAIL
     SV->>EA: Route to Email Analyst
-    EA->>EA: Parse .eml, extract IOCs
+    EA->>EA: Tier 1 static filter -> Tier 2 ReAct
     EA->>SV: Return findings + IOCs
 
-    SV->>SV: Evaluate → DELEGATE_THREAT
+    SV->>SV: Evaluate -> DELEGATE_THREAT
     SV->>TI: Route to Threat Intel (with IOCs)
-    TI->>TI: Scan reputation, check domain age
+    TI->>TI: Scan reputation
     TI->>SV: Return threat scores
 
-    SV->>SV: Evaluate → DELEGATE_FORENSIC
+    SV->>SV: Evaluate -> DELEGATE_FORENSIC
     SV->>FA: Route to Forensic Analyst
-    FA->>FA: Query CloudTrail, search VectorDB
+    FA->>FA: Tier 1 anomaly -> Tier 2 ReAct + Sigma
     FA->>SV: Return correlated patterns
 
-    SV->>SV: Evaluate → SYNTHESIZE
+    SV->>SV: Evaluate -> SYNTHESIZE
     SV->>DB: Save final report + risk score
-    DB-->>Lambda: Confirmation
-    Lambda-->>EB: Analysis complete
+    DB-->>L2: Confirmation
 ```

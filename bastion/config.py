@@ -32,29 +32,41 @@ class BastionConfig:
         default_factory=lambda: os.getenv("BASTION_DYNAMODB_TABLE", "bastion-results")
     )
 
-    # ── Amazon Bedrock (LLM) ──
-    bedrock_model_id: str = field(
-        default_factory=lambda: os.getenv(
-            "BEDROCK_MODEL_ID",
-            "anthropic.claude-3-sonnet-20240229-v1:0",
-        )
+    # ── Gemini (LLM) ──
+    gemini_api_key: str = field(
+        default_factory=lambda: os.getenv("GEMINI_API_KEY", "")
     )
-    bedrock_max_tokens: int = field(
-        default_factory=lambda: int(os.getenv("BEDROCK_MAX_TOKENS", "4096"))
+    gemini_model: str = field(
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
     )
-    bedrock_temperature: float = field(
-        default_factory=lambda: float(os.getenv("BEDROCK_TEMPERATURE", "0.1"))
+    gemini_max_tokens: int = field(
+        default_factory=lambda: int(os.getenv("GEMINI_MAX_TOKENS", "8192"))
+    )
+    gemini_temperature: float = field(
+        default_factory=lambda: float(os.getenv("GEMINI_TEMPERATURE", "0.1"))
+    )
+    gemini_base_url: str = field(
+        default_factory=lambda: os.getenv("GEMINI_BASE_URL", "")
     )
 
-    # ── VectorDB ──
-    vectordb_provider: str = field(
-        default_factory=lambda: os.getenv("VECTORDB_PROVIDER", "pinecone")
+    # ── FAISS (Pre-built index loading from S3) ──
+    faiss_index_s3_prefix: str = field(
+        default_factory=lambda: os.getenv("FAISS_INDEX_S3_PREFIX", "")
     )
-    pinecone_api_key: str = field(
-        default_factory=lambda: os.getenv("PINECONE_API_KEY", "")
+
+    # ── SQS (Buffer Queue between Tier 1 filter and LangGraph core) ──
+    sqs_queue_url: str = field(
+        default_factory=lambda: os.getenv("BASTION_SQS_QUEUE_URL", "")
     )
-    pinecone_index: str = field(
-        default_factory=lambda: os.getenv("PINECONE_INDEX", "bastion-threats")
+
+    # ── Athena (Forensic queries) ──
+    athena_database: str = field(
+        default_factory=lambda: os.getenv("ATHENA_DATABASE", "bastion_cloudtrail")
+    )
+    athena_output_bucket: str = field(
+        default_factory=lambda: os.getenv(
+            "ATHENA_OUTPUT_BUCKET", "s3://bastion-athena-results/"
+        )
     )
 
     # ── Logging ──
@@ -66,5 +78,5 @@ class BastionConfig:
     )
 
 
-# Singleton config instance — import this throughout the project
+# Singleton config instance
 config = BastionConfig()
