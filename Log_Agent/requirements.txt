@@ -1,0 +1,6 @@
+boto3
+python-dotenv
+google-genai
+langchain
+langchain-core
+langchain-google-genai
