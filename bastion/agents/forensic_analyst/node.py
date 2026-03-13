@@ -154,7 +154,7 @@ def _run_react_agent(
     react_agent = create_react_agent(
         model,
         REACT_TOOLS,
-        state_modifier=FORENSIC_ANALYST_SYSTEM_PROMPT,
+        messages_modifier=FORENSIC_ANALYST_SYSTEM_PROMPT,
     )
 
     # Build context for the agent

@@ -43,28 +43,63 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
 
   const traces: TraceEvent[] = [];
   
-  // Create traces based on findings and iteration count
-  if (report.findings && report.findings.length > 0) {
-    report.findings.forEach((finding, idx) => {
-      traces.push({
-        id: `artifact-${idx}`,
-        type: 'artifact',
-        source: finding.agent,
-        target: 'State Hub',
-        description: `Produced: ${finding.mitre_tactic || finding.finding_type || 'Finding'}`,
-        timestamp: new Date()
-      });
+  if (report.event_type) {
+    traces.push({
+      id: 'ingest',
+      type: 'delegation',
+      source: 'EventBridge',
+      target: 'Supervisor',
+      description: `Ingested new ${report.event_type} event`,
+      timestamp: new Date(Date.now() - 10000)
     });
   }
 
-  if (report.iocs && report.iocs.length > 0) {
-    traces.push({
-      id: 'enrichment-1',
-      type: 'enrichment',
-      source: 'Threat Intel',
-      target: 'IOC Database',
-      description: `Collected ${report.iocs.length} IOCs`,
-      timestamp: new Date()
+  if (report.messages && report.messages.length > 0) {
+    report.messages.forEach((msg: any, idx: number) => {
+      let source = 'Agent';
+      let content = msg.content || '';
+      
+      if (content.startsWith('[')) {
+        const endBracket = content.indexOf(']');
+        if (endBracket !== -1) {
+          source = content.substring(1, endBracket);
+          content = content.substring(endBracket + 1).trim();
+        }
+      }
+
+      traces.push({
+        id: `msg-${idx}`,
+        type: 'artifact',
+        source: source,
+        target: 'State Hub',
+        description: content.substring(0, 150) + (content.length > 150 ? '...' : ''),
+        timestamp: new Date(Date.now() - (report.messages.length - idx) * 1000)
+      });
+    });
+  } else {
+    // Fallback if no messages yet
+    if (report.iteration_count > 0) {
+      traces.push({
+        id: `delegation-${report.iteration_count}`,
+        type: 'delegation',
+        source: 'Supervisor',
+        target: report.next_agent || 'Analysis Agents',
+        description: `Delegating task (Iteration ${report.iteration_count})...`,
+        timestamp: new Date()
+      });
+    }
+  }
+
+  if (report.error_logs && report.error_logs.length > 0) {
+    report.error_logs.forEach((err: string, idx: number) => {
+      traces.push({
+        id: `err-${idx}`,
+        type: 'error',
+        source: 'System',
+        target: 'Logger',
+        description: err,
+        timestamp: new Date()
+      });
     });
   }
 
@@ -73,17 +108,8 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
       id: 'synthesis',
       type: 'synthesis',
       source: 'Supervisor',
-      target: 'Conclusion',
+      target: 'Final Output',
       description: 'Final Synthesis Generated',
-      timestamp: new Date()
-    });
-  } else if (report.iteration_count > 0) {
-    traces.push({
-      id: `delegation-${report.iteration_count}`,
-      type: 'delegation',
-      source: 'Supervisor',
-      target: 'Analysis Agents',
-      description: `Iteration ${report.iteration_count} running...`,
       timestamp: new Date()
     });
   }
@@ -103,21 +129,40 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
 
   if (!report) return defaultNodes;
 
-  // Determine status based on findings
-  const agentsUsed = new Set(report.findings?.map(f => f.agent));
+  const isRunning = report.status === 'running';
+  const nextAgent = report.next_agent || '';
+  const agentsUsed = new Set(report.findings?.map((f: any) => f.agent));
+  
+  // Track the most recent delegation to highlight the active agent
+  let currentActiveAgent = '';
+  if (isRunning && report.messages && report.messages.length > 0) {
+    const lastMsg = report.messages[report.messages.length - 1];
+    const content = lastMsg.content || '';
+    if (content.includes('DELEGATE_EMAIL')) currentActiveAgent = 'email';
+    else if (content.includes('DELEGATE_FORENSIC')) currentActiveAgent = 'forensic';
+    else if (content.includes('DELEGATE_THREAT')) currentActiveAgent = 'threat';
+    else if (content.includes('SYNTHESIZE')) currentActiveAgent = 'synthesis';
+  }
   
   return defaultNodes.map(node => {
     if (node.id === 'supervisor') {
-      return { ...node, status: report.final_report ? 'completed' : 'running', message: `Iterations: ${report.iteration_count || 0}` };
+      if (report.final_report) return { ...node, status: 'completed', message: 'Synthesis complete' };
+      if (isRunning && (!currentActiveAgent || currentActiveAgent === 'synthesis')) {
+         return { ...node, status: 'running', message: `Thinking...` };
+      }
+      return { ...node, status: isRunning ? 'idle' : 'completed', message: `Iterations: ${report.iteration_count || 0}` };
     }
     
-    // Map agent names
     let agentKey = '';
-    if (node.id === 'email') agentKey = 'email_analyst';
-    if (node.id === 'forensic') agentKey = 'forensic_analyst';
-    if (node.id === 'threat') agentKey = 'threat_intel';
+    if (node.id === 'email') { agentKey = 'email_analyst'; }
+    if (node.id === 'forensic') { agentKey = 'forensic_analyst'; }
+    if (node.id === 'threat') { agentKey = 'threat_intel'; }
 
-    if (agentsUsed.has(agentKey)) {
+    if (isRunning && currentActiveAgent === node.id) {
+      return { ...node, status: 'running', message: 'Analyzing...' };
+    }
+
+    if (agentsUsed.has(agentKey) || (node.id === 'threat' && report.findings?.some((f:any) => f.agent === 'threat_intel'))) {
       return { ...node, status: 'completed', message: 'Analysis complete' };
     }
     

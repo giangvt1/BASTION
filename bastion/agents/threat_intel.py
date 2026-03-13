@@ -66,7 +66,22 @@ def threat_intel_node(state: BastionState) -> dict:
 
         log.info("threat_intel.assessment_complete", response_length=len(llm_response))
 
-        # TODO: Parse LLM response into structured findings
+        if "high risk" in llm_response.lower() or "malicious" in llm_response.lower():
+            new_findings.append({
+                "agent": "threat_intel",
+                "finding_type": "ioc_reputation",
+                "severity": "CRITICAL",
+                "evidence": {"llm_response": llm_response},
+                "description": llm_response[:500]
+            })
+        else:
+            new_findings.append({
+                "agent": "threat_intel",
+                "finding_type": "ioc_reputation",
+                "severity": "MEDIUM",
+                "evidence": {"llm_response": llm_response},
+                "description": "Analyzed IOCs. " + llm_response[:300]
+            })
 
     except Exception:
         log.exception("threat_intel.error")

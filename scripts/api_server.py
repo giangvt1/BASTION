@@ -54,13 +54,15 @@ def run_agent_task(report_id: str, event_type: str):
         }
         
         logger.info(f"Running graph for report {report_id}")
-        result = graph.invoke(initial_state)
-        
-        # Clean up BaseMessage objects for JSON serialization
-        if "messages" in result:
-            result["messages"] = [{"role": getattr(m, "type", "unknown"), "content": getattr(m, "content", str(m))} for m in result["messages"]]
+        for current_state in graph.stream(initial_state, stream_mode="values"):
+            safe_state = dict(current_state)
+            if "messages" in safe_state:
+                safe_state["messages"] = [{"role": getattr(m, "type", "unknown"), "content": getattr(m, "content", str(m))} for m in safe_state["messages"]]
+            safe_state["status"] = "running"
+            safe_state["report_id"] = report_id
+            reports_db[report_id] = safe_state
             
-        reports_db[report_id] = result
+        reports_db[report_id]["status"] = "completed"
         logger.info(f"Finished graph for report {report_id}")
     except Exception as e:
         logger.exception("Graph execution failed")

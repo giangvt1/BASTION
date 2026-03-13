@@ -4,8 +4,12 @@ import { fetchLatestReport } from '../services/api';
 
 export const GraphView = () => {
   const [report, setReport] = useState<Report | null>(null);
+  const [nodes, setNodes] = useState<any[]>([]);
+  const isRunning = report?.status === 'running';
 
   const handleRunTrace = async () => {
+    if (isRunning) return;
+    
     // Trigger new analysis
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
     try {
@@ -14,7 +18,7 @@ export const GraphView = () => {
       const interval = setInterval(async () => {
         const data = await fetchLatestReport();
         if (data) setReport(data);
-        if (data?.final_report) clearInterval(interval);
+        if (data?.status === 'completed' || data?.final_report) clearInterval(interval);
       }, 2000);
     } catch (e) {
       console.error(e);
@@ -22,8 +26,20 @@ export const GraphView = () => {
   };
 
   useEffect(() => {
-    fetchLatestReport().then(setReport);
+    const loadData = async () => {
+      const data = await fetchLatestReport();
+      if (data) setReport(data);
+      const nodesData = await fetchNodes();
+      setNodes(nodesData);
+    };
+    loadData();
+    const interval = setInterval(loadData, 3000);
+    return () => clearInterval(interval);
   }, []);
+
+  const getNodeStatus = (id: string) => {
+    return nodes.find(n => n.id === id)?.status || 'idle';
+  };
 
   return (
     <section className="flex-1 relative flex flex-col p-6 bg-slate-50 dark:bg-background-dark/30 overflow-hidden">
@@ -36,8 +52,8 @@ export const GraphView = () => {
           <button onClick={() => window.location.reload()} className="bg-white dark:bg-primary/10 border border-slate-200 dark:border-primary/20 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-primary/20 transition-colors">
             <span className="material-symbols-outlined text-sm">refresh</span> Reset View
           </button>
-          <button onClick={handleRunTrace} className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-primary/90 transition-colors shadow-lg shadow-primary/20">
-            <span className="material-symbols-outlined text-sm">play_arrow</span> Run Trace
+          <button onClick={handleRunTrace} disabled={isRunning} className={`${isRunning ? 'bg-slate-400 cursor-not-allowed' : 'bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20'} text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors`}>
+            <span className={`material-symbols-outlined text-sm ${isRunning ? 'animate-spin' : ''}`}>{isRunning ? 'autorenew' : 'play_arrow'}</span> {isRunning ? 'Running Trace...' : 'Run Trace'}
           </button>
         </div>
       </div>
@@ -66,7 +82,7 @@ export const GraphView = () => {
         {/* Nodes */}
         {/* Supervisor Node */}
         <div className="absolute top-[5%] sm:top-[10%] left-1/2 -translate-x-1/2 z-20">
-          <div className="bg-primary p-1 rounded-xl shadow-2xl shadow-primary/40 group hover:scale-105 transition-transform duration-300">
+          <div className={`bg-primary p-1 rounded-xl shadow-2xl group hover:scale-105 transition-all duration-300 ${getNodeStatus('supervisor') === 'running' ? 'shadow-primary/60 ring-4 ring-primary/30 animate-pulse' : 'shadow-primary/40'}`}>
             <div className="bg-background-dark px-6 py-4 rounded-lg flex items-center gap-4">
               <div className="size-12 rounded-full bg-primary/20 flex items-center justify-center">
                 <span className="material-symbols-outlined text-primary text-3xl">psychology</span>
@@ -82,44 +98,46 @@ export const GraphView = () => {
         {/* Agent Nodes Row */}
         <div className="absolute top-[40%] sm:top-1/2 left-0 w-full -translate-y-1/2 flex justify-between px-[10%] sm:px-[15%] z-20">
           {/* Email Analyst */}
-          <div className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-primary/20 p-4 rounded-xl shadow-lg w-48 hover:border-primary transition-colors group cursor-pointer hover:-translate-y-1 transform duration-200">
+          <div className={`bg-white dark:bg-slate-800 border-2 p-4 rounded-xl shadow-lg w-48 transition-all group cursor-pointer hover:-translate-y-1 transform duration-200 ${getNodeStatus('email') === 'running' ? 'border-primary ring-4 ring-primary/20 shadow-primary/30' : 'border-slate-200 dark:border-primary/20 hover:border-primary'}`}>
             <div className="flex items-center gap-3 mb-2">
-              <span className="material-symbols-outlined text-primary group-hover:animate-pulse">mail</span>
+              <span className={`material-symbols-outlined ${getNodeStatus('email') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>mail</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Email Analyst</span>
             </div>
-            <p className="text-[11px] text-slate-500">Processing headers and attachments...</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('email') === 'running' ? 'Processing headers and attachments...' : getNodeStatus('email') === 'completed' ? 'Analysis finished.' : 'Awaiting task...'}</p>
             <div className="mt-3 flex gap-1">
-              <div className="h-1 flex-1 bg-green-500 rounded-full"></div>
-              <div className="h-1 flex-1 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('email') === 'completed' ? 'bg-green-500' : getNodeStatus('email') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('email') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
             </div>
           </div>
 
           {/* Forensic Analyst */}
-          <div className="bg-white dark:bg-slate-800 border-2 border-primary p-4 rounded-xl shadow-lg w-48 shadow-primary/10 group cursor-pointer hover:-translate-y-1 transform duration-200 relative">
-            <div className="absolute -top-2 -right-2 flex size-4 items-center justify-center rounded-full bg-primary animate-bounce">
-                <span className="text-[8px] text-white font-bold">!</span>
-            </div>
+          <div className={`bg-white dark:bg-slate-800 border-2 p-4 rounded-xl shadow-lg w-48 transition-all group cursor-pointer hover:-translate-y-1 transform duration-200 relative ${getNodeStatus('forensic') === 'running' ? 'border-primary ring-4 ring-primary/20 shadow-primary/30' : 'border-slate-200 dark:border-primary/20 hover:border-primary'}`}>
+            {getNodeStatus('forensic') === 'running' && (
+              <div className="absolute -top-2 -right-2 flex size-4 items-center justify-center rounded-full bg-primary animate-bounce">
+                  <span className="text-[8px] text-white font-bold">!</span>
+              </div>
+            )}
             <div className="flex items-center gap-3 mb-2">
-              <span className="material-symbols-outlined text-primary">biotech</span>
+              <span className={`material-symbols-outlined ${getNodeStatus('forensic') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>biotech</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Forensic Analyst</span>
             </div>
-            <p className="text-[11px] text-slate-500">Analyzing binary signatures...</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('forensic') === 'running' ? 'Analyzing binary signatures...' : getNodeStatus('forensic') === 'completed' ? 'Investigation complete.' : 'Awaiting logs...'}</p>
             <div className="mt-3 flex gap-1">
-              <div className="h-1 flex-1 bg-primary rounded-full animate-pulse"></div>
-              <div className="h-1 flex-1 bg-primary/30 rounded-full"></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('forensic') === 'completed' ? 'bg-green-500' : getNodeStatus('forensic') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('forensic') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
             </div>
           </div>
 
           {/* Threat Intel */}
-          <div className="bg-white dark:bg-slate-800 border-2 border-slate-200 dark:border-primary/20 p-4 rounded-xl shadow-lg w-48 hover:border-primary transition-colors group cursor-pointer hover:-translate-y-1 transform duration-200">
+          <div className={`bg-white dark:bg-slate-800 border-2 p-4 rounded-xl shadow-lg w-48 transition-all group cursor-pointer hover:-translate-y-1 transform duration-200 ${getNodeStatus('threat') === 'running' ? 'border-primary ring-4 ring-primary/20 shadow-primary/30' : 'border-slate-200 dark:border-primary/20 hover:border-primary'}`}>
             <div className="flex items-center gap-3 mb-2">
-              <span className="material-symbols-outlined text-primary">public</span>
+              <span className={`material-symbols-outlined ${getNodeStatus('threat') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>public</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Threat Intel</span>
             </div>
-            <p className="text-[11px] text-slate-500">Checking MISP/Taxii feeds...</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('threat') === 'running' ? 'Checking MISP/Taxii feeds...' : getNodeStatus('threat') === 'completed' ? 'IOCs verified.' : 'Idle...'}</p>
             <div className="mt-3 flex gap-1">
-              <div className="h-1 flex-1 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
-              <div className="h-1 flex-1 bg-slate-200 dark:bg-slate-700 rounded-full"></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('threat') === 'completed' ? 'bg-green-500' : getNodeStatus('threat') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
+              <div className={`h-1 flex-1 rounded-full ${getNodeStatus('threat') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
             </div>
           </div>
         </div>

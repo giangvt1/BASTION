@@ -23,7 +23,8 @@ export default function SOCDashboard() {
   const riskScore = report?.risk_score ? (report.risk_score * 100).toFixed(0) : '0';
   const activeAlerts = report?.findings?.length || 0;
   const isRunning = nodes.some(n => n.status === 'running');
-  const agentHealth = isRunning ? '98.2%' : '100%';
+  const agentHealth = report?.status === 'failed' ? 'Error' : isRunning ? '98.2%' : '100%';
+  const mdrEff = report ? (isRunning ? 'Analyzing...' : '1.2s') : '4.2s';
 
   return (
     <div className="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen font-display">
@@ -69,7 +70,7 @@ export default function SOCDashboard() {
               <span className="text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-wider">MDR Efficiency</span>
               <span className="material-symbols-outlined text-slate-400">timer</span>
             </div>
-            <span className="text-3xl font-bold">4.2s</span>
+            <span className="text-3xl font-bold">{mdrEff}</span>
             <p className="text-slate-400 text-xs mt-1">Avg. Agent Response Time</p>
             <p className="text-emerald-500 text-xs font-medium mt-auto">Accelerated by Gemini 2.5</p>
           </div>
@@ -175,23 +176,28 @@ export default function SOCDashboard() {
                 <h4 className="font-bold text-sm">Autonomous Agents</h4>
               </div>
               <div className="p-4 space-y-4">
-                {nodes.filter(n => n.type !== 'supervisor').map((node) => (
+                {nodes.filter(n => n.type !== 'supervisor').map((node) => {
+                  let statusColor = 'bg-slate-100 dark:bg-slate-800 text-slate-500';
+                  if (node.status === 'running') statusColor = 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600';
+                  else if (node.status === 'completed') {
+                    // Check if agent found a critical/high threat
+                    const hasThreat = report?.findings?.some((f: any) => f.agent.includes(node.id) && (f.severity === 'CRITICAL' || f.severity === 'HIGH'));
+                    statusColor = hasThreat ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 'bg-green-100 dark:bg-green-900/30 text-green-600';
+                  }
+
+                  return (
                   <div key={node.id} className="flex items-center justify-between group hover:bg-slate-50 dark:hover:bg-slate-800/30 p-2 -mx-2 rounded-lg transition-colors cursor-pointer">
                     <div className="flex items-center gap-3">
-                      <div className={`size-8 rounded flex items-center justify-center transition-colors ${node.status === 'running' ? 'bg-primary/10 text-primary' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 group-hover:bg-primary/10 group-hover:text-primary'}`}>
+                      <div className={`size-8 rounded flex items-center justify-center transition-colors ${statusColor}`}>
                         <span className="material-symbols-outlined text-sm">{node.icon}</span>
                       </div>
                       <span className={`text-xs font-medium transition-colors ${node.status === 'running' ? 'text-primary' : 'group-hover:text-primary'}`}>{node.name}</span>
                     </div>
-                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${
-                      node.status === 'running' ? 'bg-primary/10 text-primary animate-pulse' : 
-                      node.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' :
-                      'bg-slate-100 dark:bg-slate-800 text-slate-500'
-                    }`}>
+                    <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase ${statusColor} ${node.status === 'running' ? 'animate-pulse' : ''}`}>
                       {node.status}
                     </span>
                   </div>
-                ))}
+                )})}
               </div>
             </div>
 

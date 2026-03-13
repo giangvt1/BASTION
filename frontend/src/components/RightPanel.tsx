@@ -55,12 +55,12 @@ export const RightPanel = () => {
         <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Node Metrics</h4>
         <div className="grid grid-cols-2 gap-3">
           <div className="p-3 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
-            <p className="text-[10px] text-slate-500">Latency</p>
-            <p className="text-lg font-bold text-slate-800 dark:text-slate-200">42ms</p>
+            <p className="text-[10px] text-slate-500">Events Processed</p>
+            <p className="text-lg font-bold text-slate-800 dark:text-slate-200">{traces.length}</p>
           </div>
           <div className="p-3 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
-            <p className="text-[10px] text-slate-500">Cost</p>
-            <p className="text-lg font-bold text-slate-800 dark:text-slate-200">$0.02</p>
+            <p className="text-[10px] text-slate-500">Est. Cost</p>
+            <p className="text-lg font-bold text-slate-800 dark:text-slate-200">${(traces.length * 0.002).toFixed(3)}</p>
           </div>
         </div>
       </div>
