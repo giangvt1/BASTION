@@ -3,7 +3,7 @@ Deterministic embedding generation.
 
 Uses SHA-256 hash chaining to produce fixed-dimension vectors without
 requiring an external model download. Produces stable, comparable
-embeddings suitable for FAISS nearest-neighbour search.
+embeddings suitable for Pinecone cosine-similarity search.
 """
 
 from __future__ import annotations

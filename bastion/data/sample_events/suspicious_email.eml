@@ -1,3 +1,7 @@
+Received: from chase-bank.secure-login.com (185.234.72.11) by mx.acmebank.com
+ (10.0.1.50) with SMTP id abc123; Mon, 10 Mar 2026 08:15:05 +0000
+Received: from unknown (45.33.32.156) by chase-bank.secure-login.com
+ with ESMTP id xyz789; Mon, 10 Mar 2026 08:14:58 +0000
 From: security-alerts@chase-bank.secure-login.com
 To: alice.johnson@acmebank.com
 Subject: URGENT: Your Chase Bank Account Has Been Compromised
@@ -6,6 +10,7 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset="utf-8"
 Message-ID: <fake-msg-001@chase-bank.secure-login.com>
 X-Mailer: PhishKit/2.0
+X-Originating-IP: 185.234.72.11
 
 Dear Valued Customer,
 

@@ -72,7 +72,7 @@ def email_analyst_node(state: BastionState) -> dict:
     )
 
     # ── Tier 1: Static Filter ───────────────────────────────────────────
-    tier1_result = run_static_filter(subject, body, sender)
+    tier1_result = run_static_filter(subject, body, sender, raw_eml=raw_eml)
 
     if tier1_result.decision == "CLEAN":
         log.info("email_analyst.tier1_clean", static_score=tier1_result.static_risk_score)
@@ -342,7 +342,14 @@ def _build_response(
             "ioc_type": "ip",
             "value": ip,
             "source_agent": "email_analyst",
-            "context": f"Extracted from {analysis.status} email",
+            "context": f"Extracted from {analysis.status} email body",
+        })
+    for ip in analysis.iocs_extracted.get("header_ips", []):
+        iocs.append({
+            "ioc_type": "ip",
+            "value": ip,
+            "source_agent": "email_analyst",
+            "context": f"Extracted from email headers (Received/X-Originating-IP)",
         })
 
     summary = (
@@ -369,11 +376,13 @@ def _build_fallback_analysis(tier1_result) -> EmailAnalysisOutput:
             "urls": tier1_result.extracted_urls,
             "domains": tier1_result.extracted_domains,
             "ips": tier1_result.extracted_ips,
+            "header_ips": tier1_result.header_ips,
             "sender_emails": [],
         },
         reasoning_chain=(
             f"Tier 1 flagged {len(tier1_result.matched_rules)} rules: "
             f"{', '.join(tier1_result.matched_rules)}. "
+            f"Header IPs: {tier1_result.header_ips}. "
             f"ReAct agent failed -- using rule-based fallback."
         ),
     )

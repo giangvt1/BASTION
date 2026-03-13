@@ -49,9 +49,21 @@ class BastionConfig:
         default_factory=lambda: os.getenv("GEMINI_BASE_URL", "")
     )
 
-    # ── FAISS (Pre-built index loading from S3) ──
-    faiss_index_s3_prefix: str = field(
-        default_factory=lambda: os.getenv("FAISS_INDEX_S3_PREFIX", "")
+    # ── Pinecone (Vector Store) ──
+    pinecone_api_key: str = field(
+        default_factory=lambda: os.getenv("PINECONE_API_KEY", "")
+    )
+    pinecone_index_name: str = field(
+        default_factory=lambda: os.getenv("PINECONE_INDEX_NAME", "bastion-vectors")
+    )
+    pinecone_cloud: str = field(
+        default_factory=lambda: os.getenv("PINECONE_CLOUD", "aws")
+    )
+    pinecone_region: str = field(
+        default_factory=lambda: os.getenv("PINECONE_REGION", "us-east-1")
+    )
+    pinecone_dimension: int = field(
+        default_factory=lambda: int(os.getenv("PINECONE_DIMENSION", "128"))
     )
 
     # ── SQS (Buffer Queue between Tier 1 filter and LangGraph core) ──

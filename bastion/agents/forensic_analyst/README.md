@@ -98,7 +98,7 @@ forensic_analyst/
 | Tool | Chức năng | Input | Output |
 |------|-----------|-------|--------|
 | `cloudtrail_query_tool` | Query CloudTrail via Athena SQL (primary) hoặc direct API (fallback) | `query_description`, `username`, `event_name`, `time_range_hours` | `list[dict]` (CloudTrail events) |
-| `mitre_attack_vector_tool` | FAISS RAG search MITRE ATT&CK patterns | `behavior_description: str` | `list[dict]` (top-5 matching techniques) |
+| `mitre_attack_vector_tool` | Pinecone RAG search MITRE ATT&CK patterns | `behavior_description: str` | `list[dict]` (top-5 matching techniques) |
 | `shared_state_lookup_tool` | Lookup user baseline từ DynamoDB | `user_id: str` | `dict` (typical_hours, common_apis, usual_ips, team) |
 
 ---
@@ -147,7 +147,7 @@ state["event_type"] = "cloudtrail"
 - `langchain-google-genai` (Gemini cho ReAct tool-calling)
 - `langgraph` (create_react_agent)
 - `scikit-learn` (Isolation Forest)
-- `faiss-cpu` + `numpy` (MITRE ATT&CK vector search)
+- `pinecone` (MITRE ATT&CK vector search via Pinecone cloud)
 - `boto3` (Athena + CloudTrail + DynamoDB)
 - `pydantic` (structured output models)
 

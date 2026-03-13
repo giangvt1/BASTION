@@ -57,7 +57,7 @@ Agent tự quyết định gọi tool nào theo vòng lặp **Thought → Action
 
 1. **Thought**: Cần đọc nội dung email → gọi `extract_eml_components`
 2. **Action**: Trích xuất URLs, domains → gọi `extract_network_entities`
-3. **Action**: So sánh với DB phishing → gọi `vector_similarity_search` (FAISS RAG)
+3. **Action**: So sánh với DB phishing → gọi `vector_similarity_search` (Pinecone RAG)
 4. **Action**: Phân tích URL cấu trúc → gọi `analyze_url_structure`
 5. **Final**: Tổng hợp evidence → JSON verdict
 
@@ -91,7 +91,7 @@ email_analyst/
 |------|-----------|-------|--------|
 | `extract_eml_components` | Parse raw .eml → headers, body, metadata | `eml_content: str` | `dict` (headers, body_text, sender, subject, metadata) |
 | `extract_network_entities` | Regex + tldextract → URLs, domains, IPs | `text: str` | `dict` (urls, domains, ips) |
-| `vector_similarity_search` | FAISS RAG search phishing corpus | `query_text: str` | `list[dict]` (top-5 similar emails + labels) |
+| `vector_similarity_search` | Pinecone RAG search phishing corpus | `query_text: str` | `list[dict]` (top-5 similar emails + labels) |
 | `analyze_url_structure` | Detect typo-squatting, brand impersonation | `url: str` | `dict` (is_suspicious, techniques, domain_info) |
 
 ---
@@ -109,7 +109,7 @@ email_analyst/
     "ips": [],
     "sender_emails": ["security-alerts@chase-bank.secure-login.com"]
   },
-  "reasoning_chain": "Email uses urgency tactics, URL is typo-squatting Chase brand, content matches 95% with known phishing campaign in FAISS corpus."
+  "reasoning_chain": "Email uses urgency tactics, URL is typo-squatting Chase brand, content matches 95% with known phishing campaign in Pinecone corpus."
 }
 ```
 
@@ -135,7 +135,7 @@ state["event_type"] = "email"
 - `langchain-google-genai` (Gemini cho ReAct tool-calling)
 - `langgraph` (create_react_agent)
 - `tldextract` (domain extraction)
-- `faiss-cpu` + `numpy` (vector similarity search)
+- `pinecone` (vector similarity search via Pinecone cloud)
 - `pydantic` (structured output models)
 
 ---

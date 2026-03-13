@@ -46,6 +46,10 @@ class Tier1FilterResult(BaseModel):
     extracted_urls: list[str] = Field(default_factory=list)
     extracted_domains: list[str] = Field(default_factory=list)
     extracted_ips: list[str] = Field(default_factory=list)
+    header_ips: list[str] = Field(
+        default_factory=list,
+        description="IP addresses extracted from email headers (Received, X-Originating-IP).",
+    )
     static_risk_score: int = Field(
         default=0, ge=0, le=100,
         description="Preliminary risk score from static analysis (0-100)."
