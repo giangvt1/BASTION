@@ -1,0 +1,56 @@
+import { useEffect, useState } from 'react';
+import type { GraphNodeStatus } from '../types';
+import { fetchNodes } from '../services/api';
+
+export const Sidebar = () => {
+  const [nodes, setNodes] = useState<GraphNodeStatus[]>([]);
+
+  useEffect(() => {
+    fetchNodes().then(setNodes);
+    const interval = setInterval(() => {
+      fetchNodes().then(setNodes);
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <aside className="w-full lg:w-72 border-r border-slate-200 dark:border-primary/10 p-6 flex flex-col gap-6 overflow-y-auto bg-white/50 dark:bg-transparent">
+      <div>
+        <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 mb-1">LangGraph</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm">Multi-Agent State Machine</p>
+      </div>
+      <div className="space-y-2">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Agents</p>
+        
+        {nodes.map(node => (
+          <div 
+            key={node.id} 
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors cursor-pointer group ${
+              node.type === 'supervisor' 
+                ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+                : 'hover:bg-slate-100 dark:hover:bg-primary/10'
+            }`}
+          >
+            <span className={`material-symbols-outlined ${node.type === 'supervisor' ? '' : 'text-slate-400 group-hover:text-primary'}`}>
+              {node.icon}
+            </span>
+            <span className={`text-sm ${node.type === 'supervisor' ? 'font-semibold' : 'font-medium'}`}>
+              {node.name}
+            </span>
+          </div>
+        ))}
+      </div>
+      
+      <div className="mt-auto p-4 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Node Status</p>
+        <div className="flex items-center justify-between text-xs mb-1">
+          <span>Active Traces</span>
+          <span className="text-primary font-bold">12</span>
+        </div>
+        <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
+          <div className="bg-primary h-full w-[65%]"></div>
+        </div>
+      </div>
+    </aside>
+  );
+};
