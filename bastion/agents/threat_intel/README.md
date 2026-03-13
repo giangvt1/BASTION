@@ -6,63 +6,71 @@
 
 ---
 
-## Mục tiêu
-
-Nhận IOCs (IP, domain, hash, URL, email) từ các agent khác qua `BastionState`, sau đó:
-- Scan reputation qua VirusTotal, AbuseIPDB (planned)
-- Check domain age + WHOIS (planned)
-- IP geolocation & ASN analysis (planned)
-- Correlate IOCs với known campaigns
-- Map findings vào MITRE ATT&CK
-
----
-
-## Trạng thái hiện tại
-
-> **⚠️ Skeleton Implementation** -- Hiện tại agent đang ở trạng thái cơ bản:
-> - Gọi Gemini LLM với list IOCs để đánh giá
-> - Chưa có tool-calling / ReAct loop
-> - Chưa có external API integration (VirusTotal, AbuseIPDB)
-> - LLM response chưa được parse thành structured findings
-
-### Planned Enhancements
-
-1. **ReAct workflow** với các tools:
-   - `virustotal_lookup` (IP/Domain/Hash reputation)
-   - `abuseipdb_check` (IP abuse report)
-   - `whois_lookup` (Domain registration, age)
-   - `ip_geolocation` (GeoIP + ASN)
-2. **Pydantic structured output** (ThreatIntelOutput model)
-3. **Confidence scoring** cho mỗi IOC
-4. **Campaign correlation** với threat actor databases
-
----
-
-## Luồng hiện tại
+## Kiến trúc: Hybrid 2-Tier
 
 ```
-          IOCs from BastionState
-                   │
-                   ▼
-          Build prompt with IOC list
-                   │
-                   ▼
-          Call Gemini LLM (raw text)
-                   │
-                   ▼
-          Log response (TODO: parse)
-                   │
-                   ▼
-          Return findings: [] (skeleton)
+           IOCs from BastionState
+                    │
+                    ▼
+         ┌─────────────────────┐
+         │  Tier 1: Static     │  No LLM
+         │  IOC Filter         │
+         │  - Whitelist check  │
+         │  - Deduplicate      │
+         │  - Risk heuristics  │
+         └────────┬────────────┘
+                  │
+          SKIP?───┼───ANALYZE
+          │       │
+    Return BENIGN │
+                  ▼
+         ┌─────────────────────┐
+         │  Tier 2: ReAct      │  LLM + Tools
+         │  Agent (Gemini)     │
+         │  - VirusTotal       │
+         │  - AbuseIPDB        │
+         │  - WHOIS            │
+         │  - IP Geolocation   │
+         └────────┬────────────┘
+                  │
+                  ▼
+         ┌─────────────────────┐
+         │  Self-Reflection    │  LLM
+         │  (false-positive    │
+         │   reduction)        │
+         └────────┬────────────┘
+                  │
+                  ▼
+         Return findings + enriched IOCs
 ```
 
 ---
 
-## File
+## Cấu trúc file
 
 ```
-bastion/agents/threat_intel.py
+bastion/agents/threat_intel/
+├── __init__.py          # Export threat_intel_node
+├── node.py              # LangGraph node (Tier 1 -> Tier 2 -> Reflection)
+├── models.py            # ThreatIntelOutput, IOCEnrichment, Tier1IOCFilterResult
+├── prompts.py           # System prompt + self-reflection template
+├── tools.py             # 4 @tool functions (VT, AbuseIPDB, WHOIS, GeoIP)
+├── tier1_filter.py      # Static IOC pre-filter (no LLM)
+└── README.md            # (file này)
 ```
+
+---
+
+## Tools
+
+| Tool | Chức năng | Fallback |
+|------|-----------|----------|
+| `virustotal_lookup` | IP/Domain/Hash/URL reputation | Heuristic (TLD, patterns) |
+| `abuseipdb_check` | IP abuse reports, country, ISP | Tor prefix check, geo heuristic |
+| `whois_domain_lookup` | Domain age, registrar, privacy | TLD-based risk scoring |
+| `ip_geolocation` | Country, ASN, Tor/VPN/Proxy | ip-api.com → heuristic fallback |
+
+> **Note**: Tất cả tools đều fallback graceful khi không có API key -- phù hợp cho demo/thesis.
 
 ---
 
@@ -70,15 +78,41 @@ bastion/agents/threat_intel.py
 
 ```python
 state["iocs"] = [
-    {"ioc_type": "ip", "value": "185.220.101.45", "source_agent": "forensic_analyst", "context": "Foreign IP used for login"},
-    {"ioc_type": "domain", "value": "secure-login.com", "source_agent": "email_analyst", "context": "Typo-squatting domain"},
+    {"ioc_type": "ip", "value": "185.220.101.45", "source_agent": "forensic_analyst", "context": "Foreign IP"},
+    {"ioc_type": "domain", "value": "secure-login.xyz", "source_agent": "email_analyst", "context": "Phishing URL"},
 ]
+```
+
+## Output
+
+```python
+{
+    "findings": [{
+        "agent": "threat_intel",
+        "finding_type": "ioc_assessment",
+        "severity": "CRITICAL",
+        "evidence": {
+            "status": "MALICIOUS",
+            "confidence_score": 0.92,
+            "ioc_enrichments": [...],
+            "mitre_tactics": ["TA0011", "TA0001"],
+            "threat_actor": "APT28",
+        },
+        ...
+    }],
+    "iocs": [...],  # Enriched IOCs
+    "messages": [AIMessage(content="[Threat Intel] Verdict: MALICIOUS ...")]
+}
 ```
 
 ---
 
 ## Dependencies
 
-- `bastion.services.gemini` (call_gemini)
+- `bastion.services.gemini` (call_gemini, get_chat_model)
 - `bastion.models.state` (BastionState)
-- `langchain_core.messages` (AIMessage)
+- `langchain_core.tools` (@tool)
+- `langgraph.prebuilt` (create_react_agent)
+- `tldextract` (domain parsing)
+- `requests` (external API calls)
+- Optional: `python-whois` (WHOIS lookup)
