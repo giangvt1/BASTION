@@ -27,36 +27,36 @@
 ## 1. Tong quan kien truc
 
 ```
-+----------------------------------------------------------------------------------+
-|                              AWS Cloud (BASTION)                                 |
-|                                                                                  |
++---------------------------------------------------------------------------------+
+|                              AWS Cloud (BASTION)                                |
+|                                                                                 |
 |  +--------------+   +--------------------------------------------------+        |
 |  | INPUT LAYER  |-->| TRIGGER & PRE-PROCESSING LAYER (TIER 1)          |        |
 |  |              |   |                                                  |        |
 |  | - CloudTrail |   |  [EventBridge] --> [Lambda: Tier 1 Filter]       |        |
-|  | - S3 Bucket  |   |                        | Drop noise (~99%)      |        |
+|  | - S3 Bucket  |   |                        | Drop noise (~90%)       |        |
 |  +--------------+   |                        v                         |        |
 |                     |             [Lambda: PII Scrubber]               |        |
 |                     |                        |                         |        |
 |                     |                        v                         |        |
 |                     |            [Amazon SQS (Analysis Queue)]         |        |
-|                     +------------------------+--------------------------+        |
+|                     +------------------------+-------------------------+        |
 |                                              | Batch trigger                    |
-|                     +------------------------v--------------------------+        |
+|                     +------------------------v-------------------------+        |
 |                     | LANGGRAPH MULTI-AGENT CORE (TIER 2)              |        |
 |                     |                                                  |        |
 |                     |             +-----------+                        |        |
 |                     |             |Supervisor |                        |        |
 |                     |             +-----+-----+                        |        |
 |                     |  [Email Agent] [Forensic Agent] [Threat Intel]   |        |
-|                     +------------------------+--------------------------+        |
+|                     +------------------------+-------------------------+        |
 |                                              | Save Report                      |
-|                     +------------------------v--------------------------+        |
+|                     +------------------------v-------------------------+        |
 |                     | STORAGE & INTERFACE LAYER                        |        |
 |                     | - DynamoDB (Reports + State Checkpoints)         |        |
 |                     | - API Gateway -> SOC Dashboard                   |        |
 |                     +--------------------------------------------------+        |
-+----------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------+
 ```
 
 He thong duoc phan thanh **4 layer** chinh:
@@ -123,10 +123,10 @@ BASTION/
 |   |   +-- s3.py                      # S3 get object
 |   |   +-- eventbridge.py            # EventBridge event parser
 |   |
-|   +-- vector_store/                  # Pinecone vector store
+|   +-- vector_store/                  # FAISS local vector store
 |   |   +-- __init__.py
 |   |   +-- embeddings.py             # Hash-based deterministic embeddings
-|   |   +-- pinecone_client.py        # Pinecone index connect + query
+|   |   +-- faiss_client.py           # FAISS index build + search
 |   |   +-- corpus_loader.py          # Phishing corpus + MITRE corpus
 |   |
 |   +-- data/                          # Sample data & corpus CSVs
@@ -305,7 +305,7 @@ def supervisor_node(state: BastionState) -> dict:
 
 - **Tier 1**: Rule-based + Isolation Forest (scikit-learn) anomaly detection -- no LLM
 - **Tier 2**: ReAct agent (Gemini + 3 tools) + Sigma rule generation
-- **Tools**: `cloudtrail_query_tool` (Athena SQL + fallback), `mitre_attack_vector_tool` (Pinecone RAG), `shared_state_lookup_tool` (DynamoDB baseline)
+- **Tools**: `cloudtrail_query_tool` (Athena SQL + fallback), `mitre_attack_vector_tool` (FAISS RAG), `shared_state_lookup_tool` (DynamoDB baseline)
 - **Output**: `ForensicAnalysisOutput` (Pydantic: status, confidence, kill-chain, MITRE tactics, Sigma rule, reasoning)
 - Chi tiet: xem `bastion/agents/forensic_analyst/README.md`
 
@@ -568,12 +568,8 @@ class BastionConfig:
     s3_bucket: str           # default: "bastion-data-lake"
     dynamodb_table: str      # default: "bastion-results"
 
-    # Pinecone (Vector Store)
-    pinecone_api_key: str
-    pinecone_index_name: str   # default: "bastion-vectors"
-    pinecone_cloud: str        # default: "aws"
-    pinecone_region: str       # default: "us-east-1"
-    pinecone_dimension: int    # default: 128
+    # FAISS (Pre-built index on S3)
+    faiss_index_s3_prefix: str  # e.g. "bastion-indices/faiss" (empty = build at runtime)
 
     # SQS (Buffer Queue)
     sqs_queue_url: str       # bastion-analysis-queue URL
@@ -616,8 +612,8 @@ rich>=13.0.0
 # -- Data Validation --
 pydantic>=2.0.0
 
-# -- Vector Store (Pinecone) --
-pinecone>=5.0.0
+# -- Vector Store (FAISS) --
+faiss-cpu>=1.7.0
 numpy>=1.24.0
 
 # -- Email Parsing --
@@ -685,22 +681,25 @@ compiled = graph.compile(checkpointer=checkpointer, recursion_limit=25)
 | Lambda/ECS Tier 2 | SQS batch size = 1-5, controlled throughput |
 | DynamoDB | On-demand capacity |
 
-### 13.5 Vector Store -- Pinecone
+### 13.5 FAISS Index Bottleneck in Serverless
 
-**Truoc day**: Su dung FAISS local (stateful, phai rebuild index moi cold start tren Lambda).
+**Van de**: Lambda/ECS Fargate la stateless. Moi cold start phai nap CSV, chay embedding, build FAISS index tu dau -> ngon RAM, mat vai giay den vai phut.
 
-**Giai phap hien tai**: Chuyen sang **Pinecone** -- managed vector database, loai bo hoan toan van de cold start:
+**Giai phap da implement**:
 
-1. **Pinecone serverless index**: Mot index duy nhat voi 2 namespaces (`phishing`, `mitre`). Auto-scale, khong can quan ly infrastructure.
-2. **Auto-populate**: `corpus_loader.py` kiem tra namespace co data chua (`namespace_count()`). Neu rong, upsert tu CSV/fallback data. Lan chay tiep theo chi query, khong upsert lai.
-3. **Query latency**: ~20-50ms per query (so voi vai giay rebuild FAISS tren cold start).
-4. **Config**: Chi can `PINECONE_API_KEY` va `PINECONE_INDEX_NAME` trong `.env`.
+1. **Pre-built index loading**: `faiss_client.py` ho tro `save_index()` / `load_index()` / `load_index_from_s3()`. Production workflow:
+   - Build index offline (CI/CD hoac local)
+   - Upload `phishing.faiss` + `phishing.labels.json` len S3
+   - Set `FAISS_INDEX_S3_PREFIX=bastion-indices/faiss`
+   - Lambda download vao `/tmp` luc cold start (< 100ms), cache cho warm starts
 
-**Loi ich so voi FAISS**:
-- Khong can quan ly file `.faiss` tren S3/EFS
-- Lambda/ECS hoan toan stateless (khong can `/tmp` cache)
-- Scale tu dong theo workload
-- Metadata filtering co san (label, text preview)
+2. **Local cache**: Sau khi build tu CSV, index duoc save vao `/tmp/faiss_cache/` (Lambda) hoac `.bastion_cache/` (local dev). Cac warm invocations doc tu cache, khong rebuild.
+
+3. **Singleton pattern**: `corpus_loader.py` dung global variables. Mot khi index da load, no ton tai xuyen suot lifetime cua Lambda container.
+
+**Giai phap production nang cao** (neu can scale lon):
+- Chuyen sang **Amazon OpenSearch Serverless** hoac **Qdrant Cloud** (managed vector DB, ~50ms per search, khong can quan ly index)
+- Mount FAISS file qua **Amazon EFS** (shared across Lambda instances)
 
 ### 13.6 Athena Query Timeout
 

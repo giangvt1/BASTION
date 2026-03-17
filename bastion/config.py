@@ -63,7 +63,7 @@ class BastionConfig:
         default_factory=lambda: os.getenv("PINECONE_REGION", "us-east-1")
     )
     pinecone_dimension: int = field(
-        default_factory=lambda: int(os.getenv("PINECONE_DIMENSION", "128"))
+        default_factory=lambda: int(os.getenv("PINECONE_DIMENSION", "384"))
     )
 
     # ── SQS (Buffer Queue between Tier 1 filter and LangGraph core) ──
@@ -79,6 +79,17 @@ class BastionConfig:
         default_factory=lambda: os.getenv(
             "ATHENA_OUTPUT_BUCKET", "s3://bastion-athena-results/"
         )
+    )
+
+    # ── ML Models (Feature Flags) ──
+    use_ml_classifier: bool = field(
+        default_factory=lambda: os.getenv("BASTION_USE_ML_CLASSIFIER", "true").lower() == "true"
+    )
+    use_semantic_embeddings: bool = field(
+        default_factory=lambda: os.getenv("BASTION_USE_SEMANTIC_EMBEDDINGS", "true").lower() == "true"
+    )
+    use_lstm_uba: bool = field(
+        default_factory=lambda: os.getenv("BASTION_USE_LSTM_UBA", "true").lower() == "true"
     )
 
     # ── Logging ──

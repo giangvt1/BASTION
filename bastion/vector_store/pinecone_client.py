@@ -7,6 +7,11 @@ Uses namespaces to separate corpora (phishing, mitre) within a single index.
 Two deployment modes:
 1. **Cloud index** (production): Data already in Pinecone, just query.
 2. **Auto-populate** (development): Upsert from local CSV on first access.
+
+Embedding dimensions:
+- Hash embeddings (legacy): 128 dimensions
+- Semantic embeddings (default): 384 dimensions
+Ensure your Pinecone index dimension matches your embedding strategy.
 """
 
 from __future__ import annotations

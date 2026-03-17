@@ -22,8 +22,16 @@ numpy>=1.24.0
 mail-parser>=3.15.0
 tldextract>=5.0.0
 
-# ── ML (Isolation Forest for Tier 1) ──
+# ── ML Models ──
+# Isolation Forest for Tier 1 anomaly detection
 scikit-learn>=1.3.0
+
+# BERT-based phishing classifier (Tier 1 email filter)
+transformers>=4.30.0
+torch>=2.0.0
+
+# Semantic embeddings for vector search
+sentence-transformers>=2.2.0
 
 # ── Utilities ──
 python-dotenv>=1.0.0

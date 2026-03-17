@@ -45,17 +45,45 @@
                                 ForensicAnalysisOutput
 ```
 
-### Tier 1 -- Anomaly Detection (`tier1_filter.py`)
+### Tier 1 -- Hybrid Anomaly Detection (`tier1_filter.py`) ✨ ENHANCED
 
-- **Rule-based checks**: Phát hiện high-risk APIs (AssumeRole, StopLogging, CreateAccessKey...), AccessDenied probing, reconnaissance bursts
-- **Isolation Forest** (scikit-learn): ML anomaly detection trên log features:
-  - Hour-of-day (login lúc 2AM?)
-  - Is high-risk API?
-  - Is reconnaissance API?
-  - Has error code?
-  - Unique IP index
-- Nếu **0 rule matched + anomaly score thấp** → NORMAL → skip Tier 2
-- Nếu **có rule match hoặc anomaly cao** → ANOMALY → chuyển Tier 2
+**Multi-layered Detection**:
+
+1. **Rule-based checks**: Phát hiện high-risk APIs (AssumeRole, StopLogging, CreateAccessKey...), AccessDenied probing, reconnaissance bursts
+
+2. **Isolation Forest** (scikit-learn): Statistical anomaly detection trên log features:
+   - Hour-of-day (login lúc 2AM?)
+   - Is high-risk API?
+   - Is reconnaissance API?
+   - Has error code?
+   - Unique IP index
+
+3. **NEW: LSTM Autoencoder** (User Behavior Analytics):
+   - Học baseline behavior của từng user
+   - Phát hiện temporal anomalies (sequence patterns)
+   - Features: hour, day_of_week, API types, IP entropy, event_name_hash
+   - Reconstruction error → anomaly score
+   - Phát hiện slow-burn attacks (tấn công kéo dài)
+
+**Hybrid Scoring**:
+```python
+combined_score = (
+    rule_score * 0.4 +        # Rule-based: up to 0.4
+    iforest_score * 0.3 +     # Isolation Forest: up to 0.3
+    lstm_score * 0.3          # LSTM UBA: up to 0.3
+)
+```
+
+**Decision Logic**:
+- Nếu **0 rule matched + combined_score < 0.5** → NORMAL → skip Tier 2
+- Nếu **có rule match hoặc combined_score ≥ 0.5** → ANOMALY → chuyển Tier 2
+
+**Feature Flag**:
+```bash
+BASTION_USE_LSTM_UBA=true  # default: true
+```
+
+Nếu LSTM model chưa train hoặc fail → tự động fallback về Isolation Forest only.
 
 ### Tier 2 -- ReAct Forensic Investigation (`node.py`)
 
@@ -150,6 +178,88 @@ state["event_type"] = "cloudtrail"
 - `pinecone` (MITRE ATT&CK vector search via Pinecone cloud)
 - `boto3` (Athena + CloudTrail + DynamoDB)
 - `pydantic` (structured output models)
+- **NEW**: `torch` (LSTM Autoencoder for UBA)
+
+---
+
+## ML Models
+
+### 1. Isolation Forest (Tier 1)
+- **Already implemented** in code
+- Unsupervised anomaly detection
+- Features: hour, is_high_risk, is_recon, has_error, ip_index
+- Fast: <10ms per batch
+
+### 2. LSTM Autoencoder (Tier 1) ✨ NEW
+- **Location**: `bastion/models/ml_models.py` → `LSTMAnomalyDetector`
+- **Architecture**: Encoder-Decoder LSTM
+- **Input**: Sequence of 10 CloudTrail events
+- **Features per event**: 8 dimensions
+  - hour_of_day (0-1 normalized)
+  - day_of_week (0-1 normalized)
+  - is_high_risk_api (0/1)
+  - is_recon_api (0/1)
+  - is_data_access (0/1)
+  - has_error (0/1)
+  - source_ip_entropy (0-1)
+  - event_name_hash (0-1)
+- **Output**: Reconstruction error (MSE)
+- **Anomaly threshold**: MSE > 0.05 (configurable)
+
+### Training LSTM Model
+
+**Step 1: Generate synthetic training data**
+```bash
+python scripts/generate_synthetic_cloudtrail.py \
+    --output synthetic_logs.json \
+    --events 5000 \
+    --users 10 \
+    --anomaly-ratio 0.05
+```
+
+**Step 2: Train LSTM autoencoder**
+```bash
+python scripts/train_lstm_uba.py \
+    --data synthetic_logs.json \
+    --epochs 50 \
+    --batch-size 32 \
+    --learning-rate 0.001
+```
+
+Model saved to: `~/.cache/bastion/models/lstm_uba_autoencoder.pth`
+
+**Step 3: Enable in production**
+```bash
+# .env
+BASTION_USE_LSTM_UBA=true
+```
+
+### Using Pre-trained Model
+
+If you have historical CloudTrail logs:
+```bash
+# Use real logs for training
+python scripts/train_lstm_uba.py \
+    --data /path/to/cloudtrail_logs.json \
+    --epochs 100 \
+    --validation-split 0.2
+```
+
+Recommended: At least 1000+ events for meaningful training.
+
+---
+
+## Configuration
+
+```bash
+# .env file
+BASTION_USE_LSTM_UBA=true           # Enable LSTM UBA detector
+```
+
+**Important**: 
+- LSTM model requires training first (see above)
+- If model file not found → automatic fallback to Isolation Forest only
+- No crashes or blocking errors
 
 ---
 

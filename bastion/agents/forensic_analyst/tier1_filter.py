@@ -1,13 +1,17 @@
 """
 Tier 1 Anomaly Detection Filter for Forensic Analyst.
 
-Programmatic, no LLM. Combines:
+Combines multiple detection methods:
 1. Rule-based checks for known suspicious CloudTrail events
-2. Isolation Forest for statistical anomaly detection on log features
+2. Isolation Forest for statistical anomaly detection
+3. LSTM Autoencoder for temporal User Behavior Analytics (UBA)
+
+The hybrid approach captures both known attack patterns and novel anomalies.
 """
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 import numpy as np
@@ -17,6 +21,9 @@ from bastion.agents.forensic_analyst.models import Tier1AnomalyResult
 from bastion.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Feature flag for LSTM UBA detector
+USE_LSTM_UBA = os.getenv("BASTION_USE_LSTM_UBA", "true").lower() == "true"
 
 
 # ── Suspicious CloudTrail event names ───────────────────────────────────
@@ -44,7 +51,12 @@ _DATA_ACCESS_EVENTS = {
 
 
 def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult:
-    """Run Tier 1 anomaly detection on CloudTrail log context.
+    """Run Tier 1 hybrid anomaly detection on CloudTrail log context.
+
+    Combines three detection methods:
+    1. Rule-based checks (high-risk APIs, recon bursts, access denied)
+    2. Isolation Forest (statistical anomaly detection)
+    3. LSTM Autoencoder (temporal UBA, user-specific baselines)
 
     Args:
         context_logs: Dict containing 'Records' key with CloudTrail events.
@@ -68,7 +80,7 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
             if user:
                 break
 
-    # ── Rule-based checks ───────────────────────────────────────────────
+    # ── 1. Rule-based checks ────────────────────────────────────────────
     rule_matches: list[str] = []
     flagged_events: list[dict] = []
     source_ips: set[str] = set()
@@ -106,13 +118,55 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
         if recon_count >= 3 and f"recon_burst:{recon_count}" not in rule_matches:
             rule_matches.append(f"recon_burst:{recon_count}")
 
-    # ── Isolation Forest anomaly detection ──────────────────────────────
-    anomaly_score = _run_isolation_forest(records)
+    # ── 2. Isolation Forest anomaly detection ───────────────────────────
+    iforest_score = _run_isolation_forest(records)
 
-    if anomaly_score > 0.5:
-        rule_matches.append(f"isolation_forest_anomaly:{anomaly_score:.2f}")
+    if iforest_score > 0.5:
+        rule_matches.append(f"isolation_forest_anomaly:{iforest_score:.2f}")
 
-    # ── Decision ────────────────────────────────────────────────────────
+    # ── 3. LSTM UBA anomaly detection ───────────────────────────────────
+    lstm_score = 0.0
+    lstm_details = {}
+    
+    if USE_LSTM_UBA:
+        try:
+            from bastion.models.ml_models import get_lstm_detector
+            
+            detector = get_lstm_detector()
+            lstm_score, lstm_details = detector.detect_anomaly(records, user)
+            
+            log.info(
+                "tier1_forensic.lstm_uba",
+                user=user,
+                lstm_score=round(lstm_score, 3),
+                is_anomaly=lstm_details.get("is_anomaly", False),
+                reconstruction_error=round(lstm_details.get("reconstruction_error", 0.0), 4),
+            )
+            
+            if lstm_details.get("is_anomaly"):
+                rule_matches.append(f"lstm_uba_anomaly:{lstm_score:.2f}")
+        except Exception:
+            log.warning("tier1_forensic.lstm_uba_failed", exc_info=True)
+            # Continue with other detection methods
+
+    # ── 4. Compute combined anomaly score ───────────────────────────────
+    # Weighted combination of all detection methods
+    combined_score = 0.0
+    
+    # Rule-based: up to 0.4
+    rule_score = min(len(rule_matches) * 0.1, 0.4)
+    combined_score += rule_score
+    
+    # Isolation Forest: up to 0.3
+    combined_score += min(iforest_score * 0.3, 0.3)
+    
+    # LSTM UBA: up to 0.3
+    if USE_LSTM_UBA:
+        combined_score += min(lstm_score * 0.3, 0.3)
+    
+    combined_score = min(combined_score, 1.0)
+
+    # ── 5. Decision ─────────────────────────────────────────────────────
     decision = "ANOMALY" if rule_matches else "NORMAL"
 
     log.info(
@@ -120,13 +174,16 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
         decision=decision,
         rule_matches=len(rule_matches),
         flagged_events=len(flagged_events),
-        anomaly_score=round(anomaly_score, 3),
+        iforest_score=round(iforest_score, 3),
+        lstm_score=round(lstm_score, 3) if USE_LSTM_UBA else None,
+        combined_score=round(combined_score, 3),
         source_ips=list(source_ips),
+        lstm_enabled=USE_LSTM_UBA,
     )
 
     return Tier1AnomalyResult(
         decision=decision,
-        anomaly_score=anomaly_score,
+        anomaly_score=combined_score,
         flagged_events=flagged_events,
         rule_matches=rule_matches,
         user=user,
