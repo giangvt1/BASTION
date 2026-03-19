@@ -82,3 +82,40 @@ state["iocs"] = [
 - `bastion.services.gemini` (call_gemini)
 - `bastion.models.state` (BastionState)
 - `langchain_core.messages` (AIMessage)
+
+
+---
+
+## ML Integration Context
+
+Threat Intel Agent hiện tại chưa có ML integration, nhưng có thể được enhance với:
+
+### Future Enhancement: P3 - XGBoost IOC Risk Scorer
+
+**Concept**: Train XGBoost model để score IOCs dựa trên:
+- VirusTotal detection ratio
+- AbuseIPDB confidence score
+- Domain age (WHOIS)
+- IP geolocation (country risk score)
+- Historical appearance in incidents
+- Correlation with known campaigns
+
+**Benefits**:
+- Structured risk scoring (0.0-1.0)
+- Faster than LLM reasoning
+- Consistent scoring across IOCs
+- Can prioritize high-risk IOCs for manual review
+
+**Training Data**: Requires labeled IOC dataset with reputation scores
+
+**Status**: Planned (P3 priority)
+
+See `ML_ENHANCEMENTS_SUMMARY.md` for details.
+
+---
+
+## Related Documentation
+
+- **ML Integration**: `ML_INTEGRATION.md`
+- **System Design**: `Design.md`
+- **Testing**: `TESTING.md`

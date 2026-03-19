@@ -91,6 +91,13 @@ class BastionConfig:
     use_lstm_uba: bool = field(
         default_factory=lambda: os.getenv("BASTION_USE_LSTM_UBA", "true").lower() == "true"
     )
+    use_semantic_analyzer: bool = field(
+        default_factory=lambda: os.getenv("BASTION_USE_SEMANTIC_ANALYZER", "false").lower() == "true"
+    )
+    semantic_analyzer_threshold: float = field(
+        default_factory=lambda: float(os.getenv("BASTION_SEMANTIC_ANALYZER_THRESHOLD", "0.8"))
+    )
+    # Note: semantic_analyzer replaces LLM in Tier 2 (experimental, requires training)
 
     # ── Logging ──
     log_level: str = field(

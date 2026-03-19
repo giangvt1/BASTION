@@ -140,7 +140,84 @@ def _run_react_agent(
     tier1_result,
     log,
 ) -> EmailAnalysisOutput:
-    """Run the ReAct agent loop using LangGraph's create_react_agent."""
+    """Run the ReAct agent loop using LangGraph's create_react_agent.
+
+    Can use either:
+    1. Semantic Analyzer (DL model) - fast, cheap, no LLM calls
+    2. LLM ReAct agent (Gemini) - flexible, expensive
+
+    Semantic analyzer is preferred when available and trained.
+    """
+    from bastion.config import config
+
+    # Try semantic analyzer first if enabled
+    if config.use_semantic_analyzer:
+        try:
+            from bastion.models.semantic_analyzer import get_email_analyzer
+
+            analyzer = get_email_analyzer()
+
+            log.info("email_analyst.using_semantic_analyzer", sender=sender)
+
+            result = analyzer.analyze_email(
+                subject=subject,
+                body=content,
+                sender=sender,
+                urls=tier1_result.extracted_urls,
+            )
+
+            confidence = result["confidence_score"]
+            threshold = config.semantic_analyzer_threshold
+
+            log.info(
+                "email_analyst.semantic_complete",
+                status=result["status"],
+                confidence=confidence,
+                threshold=threshold,
+                will_fallback=confidence < threshold,
+            )
+
+            # Use semantic result if confidence is high
+            if confidence >= threshold:
+                log.info("email_analyst.semantic_accepted", confidence=confidence)
+
+                # Map semantic status to EmailAnalysisOutput
+                mitre_map = {
+                    "PHISHING": "TA0001 - Initial Access",
+                    "SUSPICIOUS": "TA0001 - Initial Access",
+                    "SAFE": "",
+                }
+
+                return EmailAnalysisOutput(
+                    status=result["status"],
+                    confidence_score=result["confidence_score"],
+                    mitre_tactic=mitre_map.get(result["status"], "TA0001 - Initial Access"),
+                    iocs_extracted={
+                        "urls": tier1_result.extracted_urls,
+                        "domains": tier1_result.extracted_domains,
+                        "ips": tier1_result.extracted_ips,
+                        "header_ips": tier1_result.header_ips,
+                        "sender_emails": [sender] if sender else [],
+                    },
+                    reasoning_chain=result["reasoning_chain"],
+                )
+            else:
+                log.info(
+                    "email_analyst.semantic_low_confidence",
+                    confidence=confidence,
+                    threshold=threshold,
+                    falling_back_to_llm=True,
+                )
+
+        except Exception:
+            log.warning(
+                "email_analyst.semantic_error",
+                message="Semantic analyzer failed, falling back to LLM ReAct",
+                exc_info=True,
+            )
+            # Fall through to LLM ReAct agent
+
+    # Use LLM ReAct agent (original implementation)
     from langgraph.prebuilt import create_react_agent
 
     from bastion.services.gemini import get_chat_model
@@ -182,6 +259,7 @@ def _run_react_agent(
     log.info("email_analyst.react_complete", response_length=len(final_text))
 
     return _parse_analysis_output(final_text, tier1_result)
+
 
 
 def _parse_analysis_output(text: str, tier1_result) -> EmailAnalysisOutput:
