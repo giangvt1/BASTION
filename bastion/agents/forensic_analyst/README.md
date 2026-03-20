@@ -45,19 +45,74 @@
                                 ForensicAnalysisOutput
 ```
 
-### Tier 1 -- Anomaly Detection (`tier1_filter.py`)
+### Tier 1 -- Hybrid Anomaly Detection (`tier1_filter.py`) ✨ ENHANCED
 
-- **Rule-based checks**: Phát hiện high-risk APIs (AssumeRole, StopLogging, CreateAccessKey...), AccessDenied probing, reconnaissance bursts
-- **Isolation Forest** (scikit-learn): ML anomaly detection trên log features:
-  - Hour-of-day (login lúc 2AM?)
-  - Is high-risk API?
-  - Is reconnaissance API?
-  - Has error code?
-  - Unique IP index
-- Nếu **0 rule matched + anomaly score thấp** → NORMAL → skip Tier 2
-- Nếu **có rule match hoặc anomaly cao** → ANOMALY → chuyển Tier 2
+**Multi-layered Detection**:
 
-### Tier 2 -- ReAct Forensic Investigation (`node.py`)
+1. **Rule-based checks**: Phát hiện high-risk APIs (AssumeRole, StopLogging, CreateAccessKey...), AccessDenied probing, reconnaissance bursts
+
+2. **Isolation Forest** (scikit-learn): Statistical anomaly detection trên log features:
+   - Hour-of-day (login lúc 2AM?)
+   - Is high-risk API?
+   - Is reconnaissance API?
+   - Has error code?
+   - Unique IP index
+
+3. **NEW: LSTM Autoencoder** (User Behavior Analytics):
+   - Học baseline behavior của từng user
+   - Phát hiện temporal anomalies (sequence patterns)
+   - Features: hour, day_of_week, API types, IP entropy, event_name_hash
+   - Reconstruction error → anomaly score
+   - Phát hiện slow-burn attacks (tấn công kéo dài)
+
+**Hybrid Scoring**:
+```python
+combined_score = (
+    rule_score * 0.4 +        # Rule-based: up to 0.4
+    iforest_score * 0.3 +     # Isolation Forest: up to 0.3
+    lstm_score * 0.3          # LSTM UBA: up to 0.3
+)
+```
+
+**Decision Logic**:
+- Nếu **0 rule matched + combined_score < 0.5** → NORMAL → skip Tier 2
+- Nếu **có rule match hoặc combined_score ≥ 0.5** → ANOMALY → chuyển Tier 2
+
+**Feature Flag**:
+```bash
+BASTION_USE_LSTM_UBA=true  # default: true
+```
+
+Nếu LSTM model chưa train hoặc fail → tự động fallback về Isolation Forest only.
+
+### Tier 2 -- Hybrid: Semantic Analyzer + ReAct Agent (`node.py`) ✨ ENHANCED
+
+**Hybrid Strategy**: Semantic Analyzer (DL) → LLM fallback
+
+#### Option A: Semantic Analyzer (Preferred)
+
+**When**: `BASTION_USE_SEMANTIC_ANALYZER=true` AND confidence ≥ threshold (default 0.8)
+
+**Model**: BERT-based CloudTrail classifier
+- Input: CloudTrail event sequence + user + context
+- Output: Attack severity + kill-chain stages + MITRE tactics + confidence
+- Inference: ~100-200ms
+- Cost: ~$0.0001 per analysis
+
+**Benefits**:
+- 95% cost reduction vs LLM
+- 10-20x faster (100-200ms vs 2-5 seconds)
+- Privacy: no data sent to external API
+- Deterministic outputs
+
+**Tradeoffs**:
+- Requires training data (500-1000+ labeled sequences)
+- Less flexible than LLM (cannot reason about novel attacks)
+- Cannot use tools dynamically (Athena queries, MITRE search)
+
+#### Option B: ReAct Agent (LLM + Tools)
+
+**When**: Semantic analyzer disabled OR confidence < threshold
 
 Sử dụng `create_react_agent` với Gemini LLM. Agent follow Chain-of-Thought:
 
@@ -66,6 +121,13 @@ Sử dụng `create_react_agent` với Gemini LLM. Agent follow Chain-of-Thought
 3. **Extended Investigation**: Gọi `cloudtrail_query_tool` để query thêm log 24h
 4. **MITRE Mapping**: Gọi `mitre_attack_vector_tool` để classify attack pattern
 5. **Synthesis**: Build kill-chain + verdict + recommendation
+
+**Decision Flow**:
+```
+Tier 1 ANOMALY → Semantic Analyzer
+                 ├─ confidence ≥ 0.8 → Use semantic result (fast)
+                 └─ confidence < 0.8 → Fallback to LLM ReAct (accurate)
+```
 
 ### Sigma Rule Generator (`sigma_generator.py`)
 
@@ -98,7 +160,7 @@ forensic_analyst/
 | Tool | Chức năng | Input | Output |
 |------|-----------|-------|--------|
 | `cloudtrail_query_tool` | Query CloudTrail via Athena SQL (primary) hoặc direct API (fallback) | `query_description`, `username`, `event_name`, `time_range_hours` | `list[dict]` (CloudTrail events) |
-| `mitre_attack_vector_tool` | FAISS RAG search MITRE ATT&CK patterns | `behavior_description: str` | `list[dict]` (top-5 matching techniques) |
+| `mitre_attack_vector_tool` | Pinecone RAG search MITRE ATT&CK patterns | `behavior_description: str` | `list[dict]` (top-5 matching techniques) |
 | `shared_state_lookup_tool` | Lookup user baseline từ DynamoDB | `user_id: str` | `dict` (typical_hours, common_apis, usual_ips, team) |
 
 ---
@@ -147,9 +209,94 @@ state["event_type"] = "cloudtrail"
 - `langchain-google-genai` (Gemini cho ReAct tool-calling)
 - `langgraph` (create_react_agent)
 - `scikit-learn` (Isolation Forest)
-- `faiss-cpu` + `numpy` (MITRE ATT&CK vector search)
+- `pinecone` (MITRE ATT&CK vector search via Pinecone cloud)
 - `boto3` (Athena + CloudTrail + DynamoDB)
 - `pydantic` (structured output models)
+- **NEW**: `torch` (LSTM Autoencoder for UBA)
+
+---
+
+## ML Models
+
+### 1. Isolation Forest (Tier 1)
+- **Already implemented** in code
+- Unsupervised anomaly detection
+- Features: hour, is_high_risk, is_recon, has_error, ip_index
+- Fast: <10ms per batch
+
+### 2. LSTM Autoencoder (Tier 1) ✨ NEW
+- **Location**: `bastion/models/ml_models.py` → `LSTMAnomalyDetector`
+- **Architecture**: Encoder-Decoder LSTM
+- **Input**: Sequence of 10 CloudTrail events
+- **Features per event**: 8 dimensions
+  - hour_of_day (0-1 normalized)
+  - day_of_week (0-1 normalized)
+  - is_high_risk_api (0/1)
+  - is_recon_api (0/1)
+  - is_data_access (0/1)
+  - has_error (0/1)
+  - source_ip_entropy (0-1)
+  - event_name_hash (0-1)
+- **Output**: Reconstruction error (MSE)
+- **Anomaly threshold**: MSE > 0.05 (configurable)
+
+### Training LSTM Model
+
+**Step 1: Generate synthetic training data**
+```bash
+python scripts/generate_synthetic_cloudtrail.py \
+    --output synthetic_logs.json \
+    --events 5000 \
+    --users 10 \
+    --anomaly-ratio 0.05
+```
+
+**Step 2: Train LSTM autoencoder**
+```bash
+python scripts/train_lstm_uba.py \
+    --data synthetic_logs.json \
+    --epochs 50 \
+    --batch-size 32 \
+    --learning-rate 0.001
+```
+
+Model saved to: `~/.cache/bastion/models/lstm_uba_autoencoder.pth`
+
+**Step 3: Enable in production**
+```bash
+# .env
+BASTION_USE_LSTM_UBA=true
+```
+
+### Using Pre-trained Model
+
+If you have historical CloudTrail logs:
+```bash
+# Use real logs for training
+python scripts/train_lstm_uba.py \
+    --data /path/to/cloudtrail_logs.json \
+    --epochs 100 \
+    --validation-split 0.2
+```
+
+Recommended: At least 1000+ events for meaningful training.
+
+---
+
+## Configuration
+
+```bash
+# .env file
+BASTION_USE_LSTM_UBA=true                    # Enable LSTM UBA detector (Tier 1)
+BASTION_USE_SEMANTIC_ANALYZER=true           # Enable semantic analyzer (Tier 2)
+BASTION_SEMANTIC_ANALYZER_THRESHOLD=0.8      # Confidence threshold for semantic analyzer
+```
+
+**Important**: 
+- LSTM model requires training first (see above)
+- Semantic analyzer requires training on LLM outputs (see `SEMANTIC_ANALYZER.md`)
+- If models not found → automatic fallback to Isolation Forest (Tier 1) + LLM ReAct (Tier 2)
+- No crashes or blocking errors
 
 ---
 

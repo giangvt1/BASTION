@@ -7,15 +7,11 @@ search MITRE ATT&CK patterns, and look up user baselines.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-import numpy as np
 from langchain_core.tools import tool
 
 from bastion.logger import get_logger
-from bastion.vector_store.embeddings import get_text_embedding
-from bastion.vector_store.faiss_client import search_index
 
 logger = get_logger(__name__)
 
@@ -100,7 +96,7 @@ def cloudtrail_query_tool(
 def mitre_attack_vector_tool(behavior_description: str) -> list[dict[str, Any]]:
     """Search MITRE ATT&CK patterns database for matching attack techniques.
 
-    Uses FAISS vector similarity to find the closest MITRE ATT&CK techniques
+    Uses Pinecone vector similarity to find the closest MITRE ATT&CK techniques
     that match the described behavior. This is the forensic RAG component.
 
     Args:
@@ -114,33 +110,11 @@ def mitre_attack_vector_tool(behavior_description: str) -> list[dict[str, Any]]:
     log.info("tool.mitre_search", query_length=len(behavior_description))
 
     try:
-        from bastion.vector_store.corpus_loader import get_mitre_index
+        from bastion.vector_store.corpus_loader import search_mitre_corpus
 
-        index, labels, texts = get_mitre_index()
-        query_vec = np.array(
-            get_text_embedding(behavior_description), dtype=np.float32
-        )
-        results = search_index(index, query_vec, k=5, labels=labels)
-
-        enriched = []
-        for r in results:
-            label = r.get("label", "")
-            tactic_id, _, technique = label.partition("|")
-            idx = r.get("id", -1)
-
-            entry = {
-                "rank": len(enriched) + 1,
-                "tactic_id": tactic_id.strip(),
-                "technique": technique.strip(),
-                "distance": round(r["distance"], 4),
-                "similarity": round(max(0, 1 - r["distance"] / 4), 4),
-            }
-            if 0 <= idx < len(texts):
-                entry["description"] = texts[idx][:300]
-            enriched.append(entry)
-
-        log.info("tool.mitre_results", count=len(enriched))
-        return enriched
+        results = search_mitre_corpus(behavior_description, k=5)
+        log.info("tool.mitre_results", count=len(results))
+        return results
 
     except Exception as exc:
         log.exception("tool.mitre_search_error")

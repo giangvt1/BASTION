@@ -8,18 +8,14 @@ a specific analysis task and returns structured results.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 from urllib.parse import urlparse
 
-import numpy as np
 import tldextract
 from langchain_core.tools import tool
 
 from bastion.logger import get_logger
-from bastion.vector_store.embeddings import get_email_embedding
-from bastion.vector_store.faiss_client import search_index
 
 logger = get_logger(__name__)
 
@@ -47,48 +43,88 @@ _BRAND_NAMES = {
 def extract_eml_components(eml_content: str) -> dict[str, Any]:
     """Parse raw .eml email content into structured components.
 
-    Extracts headers (From, To, Subject, Date, Message-ID, X-Mailer),
-    body text, and metadata for further analysis.
+    Extracts all headers (including multi-value headers like Received),
+    body text, metadata, and IP addresses found in email headers.
+
+    Handles:
+    - Multi-value headers (Received lines are collected into a list)
+    - Continuation lines (lines starting with whitespace)
+    - IP extraction from Received and X-Originating-IP headers
 
     Args:
         eml_content: The raw text content of the .eml file.
 
     Returns:
-        Dict with keys: headers, body_text, sender, subject, metadata.
+        Dict with keys: headers, body_text, sender, subject, metadata,
+        header_ips, received_chain.
     """
     log = logger.bind(tool="extract_eml_components")
     log.info("tool.extracting_eml", content_length=len(eml_content))
 
-    headers: dict[str, str] = {}
+    # Use a dict of lists to support multi-value headers (e.g. Received)
+    headers_multi: dict[str, list[str]] = {}
     body_lines: list[str] = []
     in_body = False
+    current_key: str | None = None
 
     for line in eml_content.split("\n"):
         if not in_body:
             if line.strip() == "":
                 in_body = True
                 continue
-            if ":" in line and not line.startswith(" ") and not line.startswith("\t"):
+            # Continuation line (starts with whitespace) → append to previous header
+            if (line.startswith(" ") or line.startswith("\t")) and current_key:
+                headers_multi[current_key][-1] += " " + line.strip()
+            elif ":" in line:
                 key, _, value = line.partition(":")
-                headers[key.strip()] = value.strip()
+                key = key.strip()
+                current_key = key
+                headers_multi.setdefault(key, []).append(value.strip())
         else:
             body_lines.append(line)
 
+    # Build a flat dict for single-value headers (last value wins)
+    headers_flat: dict[str, str] = {}
+    for key, values in headers_multi.items():
+        headers_flat[key] = values[-1]
+
     body_text = "\n".join(body_lines).strip()
-    sender = headers.get("From", "")
-    subject = headers.get("Subject", "")
+    sender = headers_flat.get("From", "")
+    subject = headers_flat.get("Subject", "")
+
+    # ── Extract IPs from Received headers + X-Originating-IP ────────
+    received_chain = headers_multi.get("Received", [])
+    header_ips: list[str] = []
+    seen_ips: set[str] = set()
+
+    # IPs from Received headers
+    for received_line in received_chain:
+        for ip in _IP_RE.findall(received_line):
+            if ip not in seen_ips:
+                seen_ips.add(ip)
+                header_ips.append(ip)
+
+    # IPs from X-Originating-IP header
+    for xip in headers_multi.get("X-Originating-IP", []):
+        for ip in _IP_RE.findall(xip):
+            if ip not in seen_ips:
+                seen_ips.add(ip)
+                header_ips.append(ip)
 
     result = {
-        "headers": headers,
+        "headers": headers_flat,
         "body_text": body_text,
         "sender": sender,
         "subject": subject,
+        "received_chain": received_chain,
+        "header_ips": header_ips,
         "metadata": {
-            "message_id": headers.get("Message-ID", ""),
-            "date": headers.get("Date", ""),
-            "x_mailer": headers.get("X-Mailer", ""),
-            "content_type": headers.get("Content-Type", ""),
-            "mime_version": headers.get("MIME-Version", ""),
+            "message_id": headers_flat.get("Message-ID", ""),
+            "date": headers_flat.get("Date", ""),
+            "x_mailer": headers_flat.get("X-Mailer", ""),
+            "x_originating_ip": headers_flat.get("X-Originating-IP", ""),
+            "content_type": headers_flat.get("Content-Type", ""),
+            "mime_version": headers_flat.get("MIME-Version", ""),
         },
     }
 
@@ -97,7 +133,9 @@ def extract_eml_components(eml_content: str) -> dict[str, Any]:
         sender=sender,
         subject=subject[:80],
         body_length=len(body_text),
-        header_count=len(headers),
+        header_count=len(headers_flat),
+        header_ips_count=len(header_ips),
+        received_hops=len(received_chain),
     )
     return result
 
@@ -151,7 +189,7 @@ def extract_network_entities(text: str) -> dict[str, list[str]]:
 
 @tool
 def vector_similarity_search(query_text: str) -> list[dict]:
-    """Search the phishing email corpus for similar historical emails using FAISS.
+    """Search the phishing email corpus for similar historical emails using Pinecone.
 
     Computes an embedding for the query text and finds the top-5 most similar
     emails in the historical phishing database (RAG retrieval step).
@@ -163,40 +201,23 @@ def vector_similarity_search(query_text: str) -> list[dict]:
         List of similar emails with similarity scores and phishing/legit labels.
     """
     log = logger.bind(tool="vector_similarity_search")
-    log.info("tool.faiss_search", query_length=len(query_text))
+    log.info("tool.pinecone_search", query_length=len(query_text))
 
-    from bastion.vector_store.corpus_loader import get_phishing_index
+    from bastion.vector_store.corpus_loader import search_phishing_corpus
 
     try:
-        index, labels, texts = get_phishing_index()
-        query_vec = np.array(
-            get_email_embedding(query_text[:80], query_text), dtype=np.float32
-        )
-        results = search_index(index, query_vec, k=5, labels=labels)
+        results = search_phishing_corpus(query_text, k=5)
 
-        enriched = []
-        for r in results:
-            entry = {
-                "rank": len(enriched) + 1,
-                "label": r.get("label", "unknown"),
-                "distance": round(r["distance"], 4),
-                "similarity": round(max(0, 1 - r["distance"] / 4), 4),
-            }
-            idx = r.get("id", -1)
-            if 0 <= idx < len(texts):
-                entry["text_preview"] = texts[idx][:200]
-            enriched.append(entry)
-
-        phishing_matches = sum(1 for e in enriched if e["label"] == "phishing")
+        phishing_matches = sum(1 for r in results if r.get("label") == "phishing")
         log.info(
-            "tool.faiss_results",
-            total_results=len(enriched),
+            "tool.pinecone_results",
+            total_results=len(results),
             phishing_matches=phishing_matches,
         )
-        return enriched
+        return results
 
     except Exception as exc:
-        log.exception("tool.faiss_search_error")
+        log.exception("tool.pinecone_search_error")
         return [{"error": str(exc)}]
 
 

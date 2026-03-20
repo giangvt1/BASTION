@@ -1,11 +1,11 @@
-"""BASTION FAISS vector store for RAG similarity search."""
+"""BASTION Pinecone vector store for RAG similarity search."""
 
-from bastion.vector_store.embeddings import get_text_embedding, EMBEDDING_DIM
-from bastion.vector_store.faiss_client import build_index, search_index
+from bastion.vector_store.embeddings import EMBEDDING_DIM, get_text_embedding
+from bastion.vector_store.pinecone_client import query_vectors, upsert_vectors
 
 __all__ = [
     "get_text_embedding",
     "EMBEDDING_DIM",
-    "build_index",
-    "search_index",
+    "upsert_vectors",
+    "query_vectors",
 ]

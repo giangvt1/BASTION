@@ -1,18 +1,26 @@
 """
-Tier 1 Static Filter for Email Analyst.
+Tier 1 Hybrid Filter for Email Analyst.
 
-Programmatic, no LLM. Runs fast regex rules, blacklist checks, and
-URL extraction to triage emails before escalating to the ReAct agent.
+Combines rule-based detection with ML-based classification:
+1. Fast regex rules for known patterns
+2. BERT-based phishing classifier for semantic understanding
+3. URL extraction and domain analysis
+
+This hybrid approach reduces false positives while maintaining speed.
 """
 
 from __future__ import annotations
 
+import os
 import re
 
 from bastion.agents.email_analyst.models import Tier1FilterResult
 from bastion.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Feature flag for ML classifier (can be disabled via env var)
+USE_ML_CLASSIFIER = os.getenv("BASTION_USE_ML_CLASSIFIER", "true").lower() == "true"
 
 
 # ── Regex phishing rules (ported from email-agent) ──────────────────────
@@ -123,34 +131,69 @@ def run_static_filter(
     subject: str,
     body: str,
     sender: str = "",
+    raw_eml: str = "",
 ) -> Tier1FilterResult:
-    """Run Tier 1 static analysis on email content.
+    """Run Tier 1 hybrid analysis on email content.
 
+    Combines rule-based detection with ML classification for improved accuracy.
     Returns a ``Tier1FilterResult`` with the triage decision.
-    If no rules match, the email is considered CLEAN and Tier 2 is skipped.
+
+    Args:
+        subject: Email subject line.
+        body: Email body text.
+        sender: Sender email address.
+        raw_eml: Raw .eml content (optional). If provided, IPs are
+                 extracted from Received and X-Originating-IP headers.
     """
     log = logger.bind(component="tier1_filter")
     combined_text = f"{subject} {body}"
 
-    # 1. Run regex phishing rules
+    # 1. Run ML-based phishing classifier (if enabled)
+    ml_score = 0.0
+    ml_verdict = "UNKNOWN"
+    
+    if USE_ML_CLASSIFIER:
+        try:
+            from bastion.models.ml_models import get_phishing_classifier
+            
+            classifier = get_phishing_classifier()
+            ml_score, ml_verdict = classifier.predict(subject, body)
+            
+            log.info(
+                "tier1.ml_classifier",
+                ml_score=round(ml_score, 3),
+                ml_verdict=ml_verdict,
+            )
+        except Exception:
+            log.warning("tier1.ml_classifier_failed", exc_info=True)
+            # Continue with rule-based detection on ML failure
+
+    # 2. Run regex phishing rules
     matched_rules: list[str] = []
     for rule_name, pattern in _PHISHING_RULES:
         if pattern.search(combined_text):
             matched_rules.append(rule_name)
 
-    # 2. Extract network entities
+    # 3. Extract network entities from body
     urls = list(set(_URL_RE.findall(combined_text)))
     ips = list(set(_IP_RE.findall(combined_text)))
     domains = list(set(_DOMAIN_RE.findall(combined_text)))
 
-    # 3. Check domains against suspicious patterns
+    # 4. Extract IPs from email headers (Received, X-Originating-IP)
+    header_ips: list[str] = []
+    if raw_eml:
+        header_ips = _extract_header_ips(raw_eml)
+        if header_ips:
+            log.info("tier1.header_ips_found", count=len(header_ips), ips=header_ips)
+
+    # 5. Check domains against suspicious patterns
     for domain in domains:
         for pat in _SUSPICIOUS_DOMAIN_PATTERNS:
             if pat.search(domain):
                 matched_rules.append(f"suspicious_domain:{domain}")
                 break
 
-    # 4. Check sender domain
+    # 6. Check sender domain
     if sender:
         sender_domain = sender.split("@")[-1] if "@" in sender else sender
         for pat in _SUSPICIOUS_DOMAIN_PATTERNS:
@@ -158,21 +201,43 @@ def run_static_filter(
                 matched_rules.append(f"suspicious_sender:{sender_domain}")
                 break
 
-    # 5. Compute preliminary risk score
+    # 7. Compute hybrid risk score (combines ML + rules)
     score = 0
-    score += min(len(matched_rules) * 8, 50)
-    score += min(len(urls) * 5, 20)
-    score += min(len(ips) * 3, 15)
+    
+    # ML score contributes up to 60 points
+    if USE_ML_CLASSIFIER and ml_score > 0:
+        score += int(ml_score * 60)
+        if ml_verdict == "PHISHING":
+            matched_rules.append(f"ml_phishing:{ml_score:.2f}")
+        elif ml_verdict == "SUSPICIOUS":
+            matched_rules.append(f"ml_suspicious:{ml_score:.2f}")
+    
+    # Rule-based score contributes up to 40 points
+    score += min(len(matched_rules) * 5, 20)
+    score += min(len(urls) * 3, 10)
+    score += min(len(ips) * 2, 5)
+    score += min(len(header_ips) * 2, 5)
     score = min(score, 100)
 
-    decision = "SUSPICIOUS" if matched_rules else "CLEAN"
+    # Decision logic: ML verdict takes priority if confident
+    if USE_ML_CLASSIFIER and ml_score >= 0.7:
+        decision = "SUSPICIOUS"  # High ML confidence = escalate to Tier 2
+    elif USE_ML_CLASSIFIER and ml_score < 0.3 and len(matched_rules) <= 2:
+        decision = "CLEAN"  # Low ML score + few rules = likely clean
+    elif matched_rules:
+        decision = "SUSPICIOUS"
+    else:
+        decision = "CLEAN"
 
     log.info(
         "tier1.result",
         decision=decision,
         rules_matched=len(matched_rules),
         urls_found=len(urls),
+        header_ips_found=len(header_ips),
         risk_score=score,
+        ml_enabled=USE_ML_CLASSIFIER,
+        ml_score=round(ml_score, 3) if USE_ML_CLASSIFIER else None,
     )
 
     return Tier1FilterResult(
@@ -181,5 +246,47 @@ def run_static_filter(
         extracted_urls=urls,
         extracted_domains=domains,
         extracted_ips=ips,
+        header_ips=header_ips,
         static_risk_score=score,
     )
+
+
+def _extract_header_ips(raw_eml: str) -> list[str]:
+    """Extract IP addresses from Received and X-Originating-IP headers.
+
+    Parses only the header section of the .eml (lines before the first
+    blank line) and extracts IPs from relevant headers.
+    """
+    header_ips: list[str] = []
+    seen: set[str] = set()
+    current_key = ""
+    current_value = ""
+
+    for line in raw_eml.split("\n"):
+        stripped = line.strip()
+        # Blank line = end of headers
+        if stripped == "":
+            break
+        # Continuation line
+        if line.startswith(" ") or line.startswith("\t"):
+            current_value += " " + stripped
+        elif ":" in line:
+            # Process the previous header
+            if current_key in ("Received", "X-Originating-IP"):
+                for ip in _IP_RE.findall(current_value):
+                    if ip not in seen:
+                        seen.add(ip)
+                        header_ips.append(ip)
+            key, _, value = line.partition(":")
+            current_key = key.strip()
+            current_value = value.strip()
+
+    # Process the last header
+    if current_key in ("Received", "X-Originating-IP"):
+        for ip in _IP_RE.findall(current_value):
+            if ip not in seen:
+                seen.add(ip)
+                header_ips.append(ip)
+
+    return header_ips
+
