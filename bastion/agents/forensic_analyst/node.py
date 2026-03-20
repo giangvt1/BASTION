@@ -113,8 +113,12 @@ def _extract_log_context(payload: dict) -> dict:
     detail = payload.get("detail", payload)
 
     context_logs = detail.get("context_logs", {})
-    if not context_logs and "Records" in detail:
-        context_logs = {"Records": detail["Records"]}
+    if not context_logs:
+        if "Records" in detail:
+            context_logs = {"Records": detail["Records"]}
+        elif any(k in detail for k in ("eventName", "eventTime", "eventID", "sourceIPAddress")):
+            # Flat EventBridge event or CSV row
+            context_logs = {"Records": [detail]}
 
     user = detail.get("user", "")
     anomaly_trigger = detail.get("anomaly_trigger", "")
@@ -123,7 +127,17 @@ def _extract_log_context(payload: dict) -> dict:
     if not user and context_logs.get("Records"):
         for rec in context_logs["Records"]:
             identity = rec.get("userIdentity", {})
-            user = identity.get("userName", "")
+            if isinstance(identity, dict):
+                user = identity.get("userName", identity.get("principalId", ""))
+            else:
+                user = str(identity) if identity else ""
+            
+            # Fallback for flattened CSV headers
+            if not user and "userIdentity.userName" in rec:
+                user = rec.get("userIdentity.userName")
+            elif not user and "userName" in rec:
+                user = rec.get("userName")
+                
             if user:
                 break
 
@@ -218,7 +232,7 @@ def _run_react_agent(
     react_agent = create_react_agent(
         model,
         REACT_TOOLS,
-        state_modifier=FORENSIC_ANALYST_SYSTEM_PROMPT,
+        prompt=FORENSIC_ANALYST_SYSTEM_PROMPT,
     )
 
     # Build context for the agent
@@ -340,15 +354,28 @@ def _parse_analysis_output(text: str, tier1_result) -> ForensicAnalysisOutput:
     return _build_fallback_analysis(tier1_result)
 
 
-def _extract_json(text: str) -> str | None:
+def _extract_json(text) -> str | None:
     """Extract the first JSON object from text."""
     import re
-    match = re.search(r"```(?:json)?\s*\n?({.*?})\s*\n?```", text, re.DOTALL)
+    if isinstance(text, list):
+        if text and isinstance(text[0], dict) and "text" in text[0]:
+            text = text[0]["text"]
+        else:
+            text = str(text)
+    elif not isinstance(text, str):
+        text = str(text)
+        
+    # Try markdown json blocks first
+    match = re.search(r"```(?:json)?\s*\n?(.*?)\s*\n?```", text, re.DOTALL)
     if match:
-        return match.group(1)
-    match = re.search(r"\{[^{}]*\"status\"[^{}]*\}", text, re.DOTALL)
-    if match:
-        return match.group(0)
+        return match.group(1).strip()
+    
+    # Try finding the first '{' and last '}'
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        return text[start_idx:end_idx+1]
+        
     return None
 
 

@@ -575,6 +575,16 @@ aws secretsmanager create-secret \
 aws secretsmanager create-secret \
     --name bastion/pinecone-api-key \
     --secret-string "your-pinecone-api-key-here"
+
+# Store VirusTotal API key (optional, for Threat Intel)
+aws secretsmanager create-secret \
+    --name bastion/virustotal-api-key \
+    --secret-string "your-vt-api-key-here"
+
+# Store AbuseIPDB API key (optional, for Threat Intel)
+aws secretsmanager create-secret \
+    --name bastion/abuseipdb-api-key \
+    --secret-string "your-abuseipdb-api-key-here"
 ```
 
 Update Lambda code to fetch from Secrets Manager:
@@ -589,9 +599,16 @@ def get_secret(secret_name: str) -> str:
     response = secrets.get_secret_value(SecretId=secret_name)
     return response["SecretString"]
 
-# In config.py
+# In config.py or Lambda handler
 gemini_api_key = get_secret("bastion/gemini-api-key")
+pinecone_api_key = get_secret("bastion/pinecone-api-key")
 ```
+
+**Gemini API Key**:
+- Get your key: https://aistudio.google.com/app/apikey
+- Free tier: 15 requests/minute, 1500 requests/day
+- Paid tier: Higher rate limits, production usage
+- Model: `gemini-2.5-flash` (fast, cost-effective) or `gemini-2.5-pro` (more capable)
 
 ---
 
@@ -891,6 +908,106 @@ aws logs tail /aws/lambda/bastion-analysis-handler --follow
    aws sqs start-message-move-task \
        --source-arn arn:aws:sqs:us-east-1:123456789012:bastion-analysis-dlq \
        --destination-arn arn:aws:sqs:us-east-1:123456789012:bastion-analysis-queue
+   ```
+
+### Gemini API Issues
+
+**Symptom**: "API key not valid" or "403 Forbidden"
+
+**Solutions**:
+1. **Verify API key**:
+   ```bash
+   # Test API key
+   curl -H "Content-Type: application/json" \
+        -H "x-goog-api-key: YOUR_API_KEY" \
+        -d '{"contents":[{"parts":[{"text":"Hello"}]}]}' \
+        https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent
+   ```
+
+2. **Check API key permissions**:
+   - Visit: https://aistudio.google.com/app/apikey
+   - Ensure key is not restricted to specific IPs/domains
+   - Regenerate key if needed
+
+3. **Verify environment variable**:
+   ```bash
+   echo $GEMINI_API_KEY
+   # Should print your API key
+   ```
+
+**Symptom**: "Rate limit exceeded" or "429 Too Many Requests"
+
+**Solutions**:
+1. **Free tier limits**:
+   - 15 requests/minute
+   - 1500 requests/day
+   - 1 million tokens/day
+
+2. **Upgrade to paid tier**:
+   - Visit: https://ai.google.dev/pricing
+   - Enable billing in Google Cloud Console
+   - Higher rate limits (60 req/min, 10k req/day)
+
+3. **Implement rate limiting**:
+   ```python
+   import time
+   from functools import wraps
+
+   def rate_limit(calls_per_minute=15):
+       min_interval = 60.0 / calls_per_minute
+       last_called = [0.0]
+
+       def decorator(func):
+           @wraps(func)
+           def wrapper(*args, **kwargs):
+               elapsed = time.time() - last_called[0]
+               left_to_wait = min_interval - elapsed
+               if left_to_wait > 0:
+                   time.sleep(left_to_wait)
+               ret = func(*args, **kwargs)
+               last_called[0] = time.time()
+               return ret
+           return wrapper
+       return decorator
+   ```
+
+4. **Use SQS batching** (already implemented):
+   - Tier 1 filters 90% events
+   - SQS controls throughput
+   - Reduces API calls significantly
+
+**Symptom**: "Model not found" or "Invalid model name"
+
+**Solutions**:
+1. **Check model name** in `.env`:
+   ```bash
+   GEMINI_MODEL=gemini-2.5-flash  # Correct
+   # NOT: gemini-pro, gemini-1.5-pro (old names)
+   ```
+
+2. **Available models**:
+   - `gemini-2.5-flash`: Fast, cost-effective (recommended)
+   - `gemini-2.5-pro`: More capable, slower, more expensive
+   - `gemini-1.5-flash`: Legacy (still works)
+   - `gemini-1.5-pro`: Legacy (still works)
+
+**Symptom**: Slow response times (>10 seconds)
+
+**Solutions**:
+1. **Use gemini-2.5-flash** (faster than pro):
+   ```bash
+   GEMINI_MODEL=gemini-2.5-flash
+   ```
+
+2. **Reduce max_tokens**:
+   ```bash
+   GEMINI_MAX_TOKENS=4096  # Instead of 8192
+   ```
+
+3. **Enable semantic analyzer** (bypass LLM):
+   ```bash
+   BASTION_USE_SEMANTIC_ANALYZER=true
+   # 10-20x faster (100-200ms vs 2-5s)
    ```
 
 ### High LLM Costs

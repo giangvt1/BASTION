@@ -78,7 +78,7 @@ def build_graph() -> StateGraph:
     graph.add_edge("forensic_analyst", "supervisor")
     graph.add_edge("threat_intel", "supervisor")
 
-    compiled = graph.compile(recursion_limit=25)
-    logger.info("graph.compiled", recursion_limit=25)
+    compiled = graph.compile()
+    logger.info("graph.compiled")
 
     return compiled

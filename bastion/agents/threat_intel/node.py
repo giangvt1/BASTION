@@ -115,7 +115,7 @@ def _run_react_agent(
     react_agent = create_react_agent(
         model,
         REACT_TOOLS,
-        state_modifier=THREAT_INTEL_SYSTEM_PROMPT,
+        prompt=THREAT_INTEL_SYSTEM_PROMPT,
     )
 
     # Build IOC summary for the agent
@@ -199,17 +199,28 @@ def _parse_analysis_output(text: str, tier1_result) -> ThreatIntelOutput:
     return _build_fallback_analysis(tier1_result)
 
 
-def _extract_json(text: str) -> str | None:
-    """Extract the first JSON object from text (handles markdown code blocks)."""
+def _extract_json(text) -> str | None:
+    """Extract the first JSON object from text."""
     import re
-    # Try ```json ... ``` blocks first
-    match = re.search(r"```(?:json)?\s*\n?(\{.*?\})\s*\n?```", text, re.DOTALL)
+    if isinstance(text, list):
+        if text and isinstance(text[0], dict) and "text" in text[0]:
+            text = text[0]["text"]
+        else:
+            text = str(text)
+    elif not isinstance(text, str):
+        text = str(text)
+        
+    # Try markdown json blocks first
+    match = re.search(r"```(?:json)?\s*\n?(.*?)\s*\n?```", text, re.DOTALL)
     if match:
-        return match.group(1)
-    # Try raw JSON
-    match = re.search(r"\{[^{}]*\"status\"[^{}]*\}", text, re.DOTALL)
-    if match:
-        return match.group(0)
+        return match.group(1).strip()
+    
+    # Try finding the first '{' and last '}'
+    start_idx = text.find('{')
+    end_idx = text.rfind('}')
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+        return text[start_idx:end_idx+1]
+        
     return None
 
 
