@@ -17,7 +17,7 @@ export default function Pipeline() {
   }, []);
 
   const hasSigma = report?.findings?.some((f: any) => f.evidence?.has_sigma_rule);
-  
+
   // Calculate dynamic metrics
   const reductionRatio = report ? Math.max(10, 45000 / (report.findings?.length || 1)).toLocaleString() + ':1' : '1,400:1';
   const detectionTime = report ? (report.status === 'completed' ? '1.2s' : 'Running...') : '42s';

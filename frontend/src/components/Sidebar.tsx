@@ -21,15 +21,14 @@ export const Sidebar = () => {
       </div>
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Agents</p>
-        
+
         {nodes.map(node => (
-          <div 
-            key={node.id} 
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors cursor-pointer group ${
-              node.type === 'supervisor' 
-                ? 'bg-primary text-white shadow-lg shadow-primary/20' 
+          <div
+            key={node.id}
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors cursor-pointer group ${node.type === 'supervisor'
+                ? 'bg-primary text-white shadow-lg shadow-primary/20'
                 : 'hover:bg-slate-100 dark:hover:bg-primary/10'
-            }`}
+              }`}
           >
             <span className={`material-symbols-outlined ${node.type === 'supervisor' ? '' : 'text-slate-400 group-hover:text-primary'}`}>
               {node.icon}
@@ -40,7 +39,7 @@ export const Sidebar = () => {
           </div>
         ))}
       </div>
-      
+
       <div className="mt-auto p-4 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Node Status</p>
         <div className="flex items-center justify-between text-xs mb-1">

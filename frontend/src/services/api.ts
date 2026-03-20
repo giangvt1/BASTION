@@ -2,7 +2,7 @@ import type { Report, TraceEvent, GraphNodeStatus } from '../types';
 
 export const fetchReports = async (): Promise<{reports: Report[], count: number}> => {
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     
     const response = await fetch(`${API_URL}/reports`);
     if (!response.ok) throw new Error("Failed to fetch reports");
@@ -16,7 +16,7 @@ export const fetchReports = async (): Promise<{reports: Report[], count: number}
 
 export const fetchReport = async (id: string): Promise<Report | null> => {
   try {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     
     const response = await fetch(`${API_URL}/reports/${id}`);
     if (!response.ok) throw new Error("Failed to fetch report");
@@ -117,6 +117,18 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
   return traces;
 };
 
+export const triggerAnalysis = async (eventType: string): Promise<{message: string, report_id: string} | null> => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const response = await fetch(`${API_URL}/trigger/${eventType}`, { method: 'POST' });
+    if (!response.ok) throw new Error("Failed to trigger analysis");
+    return await response.json();
+  } catch (error) {
+    console.error("API trigger error:", error);
+    return null;
+  }
+};
+
 export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
   const report = await fetchLatestReport();
   
@@ -130,7 +142,6 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
   if (!report) return defaultNodes;
 
   const isRunning = report.status === 'running';
-  const nextAgent = report.next_agent || '';
   const agentsUsed = new Set(report.findings?.map((f: any) => f.agent));
   
   // Track the most recent delegation to highlight the active agent

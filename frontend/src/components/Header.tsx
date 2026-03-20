@@ -18,7 +18,7 @@ export const Header = () => {
         </div>
         <h2 className="text-slate-900 dark:text-slate-100 text-lg font-bold leading-tight tracking-tight">BASTION SOC</h2>
       </div>
-      
+
       <div className="flex flex-1 justify-end gap-8">
         <nav className="hidden md:flex items-center gap-9">
           <Link to="/" className={getLinkClass("/")}>Dashboard</Link>
@@ -26,11 +26,11 @@ export const Header = () => {
           <Link to="/orchestrator" className={getLinkClass("/orchestrator")}>Orchestrator</Link>
           <Link to="/architecture" className={getLinkClass("/architecture")}>Architecture</Link>
         </nav>
-        
+
         <div className="flex items-center gap-4">
           <div className="relative hidden sm:block">
             <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-lg">search</span>
-            <input className="w-64 pl-10 pr-4 py-2 rounded-xl border-none bg-slate-100 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-slate-100" placeholder="Search signals or entities..." type="text" onKeyDown={(e) => { if(e.key === 'Enter') alert('Search functionality coming soon.') }} />
+            <input className="w-64 pl-10 pr-4 py-2 rounded-xl border-none bg-slate-100 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-primary/50 text-slate-900 dark:text-slate-100" placeholder="Search signals or entities..." type="text" onKeyDown={(e) => { if (e.key === 'Enter') alert('Search functionality coming soon.') }} />
           </div>
           <button onClick={() => alert('No new notifications')} className="p-2 rounded-xl text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative">
             <span className="material-symbols-outlined">notifications</span>

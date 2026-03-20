@@ -16,12 +16,16 @@ export interface IOC {
 export interface Report {
   report_id: string;
   event_type: string;
+  status: 'running' | 'completed' | 'failed';
   risk_score: number;
   final_report: string;
   findings: Finding[];
   iocs: IOC[];
+  messages: { role?: string; content: string; timestamp?: string }[];
+  next_agent?: string;
   iteration_count: number;
   error_logs: string[];
+  event_payload?: any;
   timestamp?: string;
 }
 

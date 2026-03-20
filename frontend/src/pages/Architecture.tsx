@@ -21,7 +21,7 @@ export default function Architecture() {
 
             {/* Architecture Diagram Grid */}
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 items-stretch">
-              
+
               {/* 1. Input Layer */}
               <div className="flex flex-col gap-4 p-6 rounded-xl bg-[#2a1d17] border border-[#3d2b22] relative group hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5 transition-all duration-300">
                 <div className="flex items-center gap-2 mb-4">
@@ -104,7 +104,7 @@ export default function Architecture() {
                     <p className="text-xs font-black text-primary mb-2 tracking-widest">ORCHESTRATOR</p>
                     <div className="flex justify-center gap-3 text-xs">
                       <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">LangGraph</span>
-                      <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">Gemini 2.5 Pro</span>
+                      <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">Gemini 2.5</span>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">

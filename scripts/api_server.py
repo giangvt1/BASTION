@@ -102,4 +102,5 @@ async def trigger_analysis(event_type: str, background_tasks: BackgroundTasks):
     return {"message": "Analysis triggered", "report_id": report_id}
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    print("Starting BASTION Local API on port 8001...")
+    uvicorn.run(app, host="127.0.0.1", port=8001)
