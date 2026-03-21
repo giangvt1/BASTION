@@ -7,6 +7,7 @@ without requiring Lambda or EventBridge deployment.
 Usage:
     python scripts/run_local.py --email        # Test email analysis
     python scripts/run_local.py --forensic     # Test forensic analysis
+    python scripts/run_local.py --threat       # Test threat intel analysis
     python scripts/run_local.py --full         # Full Supervisor-routed pipeline
 """
 
@@ -95,6 +96,12 @@ def run_single_agent(event: dict, agent_name: str):
         print("  BASTION -- Forensic Analyst Agent (Direct)")
         print("=" * 70 + "\n")
         result = forensic_analyst_node(initial_state)
+    elif agent_name == "threat":
+        from bastion.agents.threat_intel import threat_intel_node
+        print("\n" + "=" * 70)
+        print("  BASTION -- Threat Intel Agent (Direct)")
+        print("=" * 70 + "\n")
+        result = threat_intel_node(initial_state)
     else:
         raise ValueError(f"Unknown agent: {agent_name}")
 
@@ -189,11 +196,48 @@ def _print_results(result: dict):
     print()
 
 
+def load_threat_intel_event() -> dict:
+    """Load a sample event with IOCs for Threat Intel testing."""
+    return {
+        "event_type": "threat_intel",
+        "source": "manual",
+        "detail": {
+            "iocs": [
+                {
+                    "ioc_type": "domain",
+                    "value": "chase-bank-secure.xyz",
+                    "source_agent": "email_analyst",
+                    "context": "Phishing domain with brand impersonation",
+                },
+                {
+                    "ioc_type": "ip",
+                    "value": "185.220.101.45",
+                    "source_agent": "forensic_analyst",
+                    "context": "Login from Tor exit node at 2AM",
+                },
+                {
+                    "ioc_type": "domain",
+                    "value": "google.com",
+                    "source_agent": "email_analyst",
+                    "context": "Legitimate domain (should be filtered)",
+                },
+                {
+                    "ioc_type": "ip",
+                    "value": "10.0.1.5",
+                    "source_agent": "forensic_analyst",
+                    "context": "Internal IP (should be filtered)",
+                },
+            ],
+        },
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="BASTION local test runner")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--email", action="store_true", help="Test Email Analyst Agent")
     group.add_argument("--forensic", action="store_true", help="Test Forensic Analyst Agent")
+    group.add_argument("--threat", action="store_true", help="Test Threat Intel Agent")
     group.add_argument("--full", action="store_true", help="Run full Supervisor-routed pipeline")
 
     parser.add_argument(
@@ -211,6 +255,35 @@ def main():
     elif args.forensic:
         event = load_forensic_event()
         run_single_agent(event, "forensic")
+    elif args.threat:
+        event = load_threat_intel_event()
+        # Pre-populate IOCs in state for Threat Intel
+        from bastion.models.state import BastionState
+        initial_state: BastionState = {
+            "event_payload": event,
+            "event_type": "threat_intel",
+            "messages": [],
+            "next_agent": "",
+            "findings": [
+                {
+                    "agent": "email_analyst",
+                    "severity": "HIGH",
+                    "description": "Phishing email detected with brand impersonation",
+                }
+            ],
+            "iocs": event["detail"]["iocs"],
+            "iteration_count": 1,
+            "error_logs": [],
+            "risk_score": None,
+            "final_report": None,
+            "report_id": None,
+        }
+        from bastion.agents.threat_intel import threat_intel_node
+        print("\n" + "=" * 70)
+        print("  BASTION -- Threat Intel Agent (Direct)")
+        print("=" * 70 + "\n")
+        result = threat_intel_node(initial_state)
+        _print_results(result)
     elif args.full:
         event_type = args.event_type or "email"
         event = load_email_event() if event_type == "email" else load_forensic_event()

@@ -98,12 +98,30 @@ cp .env.example .env
 nano .env
 ```
 
-Required:
-- `GEMINI_API_KEY` - Google Gemini API key
-- `PINECONE_API_KEY` - Pinecone vector database key
-- AWS credentials (boto3 default chain)
+**Required API Keys**:
 
-### 3. Train LSTM UBA Model
+1. **Gemini API Key** (Required for LLM reasoning):
+   - Visit: https://aistudio.google.com/app/apikey
+   - Click "Create API Key"
+   - Copy key to `.env`: `GEMINI_API_KEY=your-key-here`
+   - Free tier: 15 req/min, 1500 req/day (sufficient for testing)
+   - Paid tier: Higher limits for production
+
+2. **Pinecone API Key** (Required for vector search):
+   - Visit: https://www.pinecone.io/
+   - Sign up for free account
+   - Create new index: `bastion-vectors` (dimension: 384)
+   - Copy API key to `.env`: `PINECONE_API_KEY=your-key-here`
+
+3. **AWS Credentials** (Required for CloudTrail, S3, DynamoDB):
+   - Configure via `aws configure` or environment variables
+   - Ensure IAM permissions for S3, DynamoDB, Athena
+
+**Optional API Keys** (for better Threat Intel accuracy):
+- **VirusTotal**: https://www.virustotal.com/gui/join-us (500 req/day free)
+- **AbuseIPDB**: https://www.abuseipdb.com/register (1000 req/day free)
+
+### 4. Train LSTM UBA Model
 
 ```bash
 # Generate synthetic CloudTrail data
@@ -113,7 +131,7 @@ python scripts/generate_synthetic_cloudtrail.py --output logs.json --events 5000
 python scripts/train_lstm_uba.py --data logs.json --epochs 50
 ```
 
-### 4. Test Locally
+### 3. Test Locally
 
 ```bash
 # Test email analysis
@@ -121,6 +139,9 @@ python scripts/run_local.py --email
 
 # Test forensic analysis
 python scripts/run_local.py --forensic
+
+# Test threat intel analysis
+python scripts/run_local.py --threat
 
 # Test full multi-agent workflow
 python scripts/run_local.py --full
@@ -297,6 +318,7 @@ See `DEPLOYMENT.md` for detailed deployment guide.
 |----------|-------------|
 | `Design.md` | Complete architecture design + ML integration + testing guide |
 | `DEPLOYMENT.md` | AWS deployment guide + troubleshooting |
+| `GEMINI_SETUP_GUIDE.md` | Gemini API setup, pricing, optimization |
 | `README.md` | This file - project overview + quick start |
 | `bastion/agents/email_analyst/README.md` | Email Analyst (phishing detection) |
 | `bastion/agents/forensic_analyst/README.md` | Forensic Analyst (log analysis) |
@@ -416,15 +438,15 @@ When using semantic analyzer (DL models):
 ## 🛠️ Tech Stack
 
 ### Core
-- **LangGraph**: Multi-agent orchestration
-- **Gemini 2.5 Flash**: LLM reasoning
+- **LangGraph**: Multi-agent orchestration framework
+- **Gemini 2.5 Flash**: LLM reasoning (Google AI)
 - **AWS Lambda/ECS**: Serverless compute
 - **DynamoDB**: State storage
 - **SQS**: Event buffering
 
 ### ML/DL
 - **PyTorch**: Deep learning framework
-- **Transformers**: BERT models
+- **Transformers**: BERT models (HuggingFace)
 - **Sentence-BERT**: Semantic embeddings
 - **scikit-learn**: Isolation Forest
 
@@ -434,6 +456,11 @@ When using semantic analyzer (DL models):
 - **Athena**: SQL queries on logs
 - **EventBridge**: Event routing
 - **Pinecone**: Vector database (MITRE corpus)
+
+### External APIs (Optional)
+- **VirusTotal**: IOC reputation (500 req/day free)
+- **AbuseIPDB**: IP abuse reports (1000 req/day free)
+- **ip-api.com**: IP geolocation (free, 45 req/min)
 
 ---
 
@@ -488,9 +515,9 @@ aws s3 cp suspicious_email.eml s3://bastion-data-lake/emails/
 
 ```bash
 # Multi-agent collaboration:
-# 1. Email Analyst: Detects spear-phishing email
+# 1. Email Analyst: Detects spear-phishing email → extracts IOCs
 # 2. Supervisor: Routes IOCs to Threat Intel
-# 3. Threat Intel: Confirms malicious domain
+# 3. Threat Intel: Confirms malicious domain (VT: 45/89 detections, 7 days old)
 # 4. Supervisor: Routes to Forensic Analyst
 # 5. Forensic: Finds lateral movement in CloudTrail
 # 6. Supervisor: Synthesizes full attack chain report

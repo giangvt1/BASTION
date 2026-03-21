@@ -82,6 +82,6 @@ def build_graph() -> StateGraph:
     graph.add_edge("synthesis", END)
 
     compiled = graph.compile()
-    logger.info("graph.compiled", recursion_limit=25)
+    logger.info("graph.compiled")
 
     return compiled

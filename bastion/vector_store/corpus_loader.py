@@ -28,7 +28,13 @@ from bastion.vector_store.pinecone_client import (
 
 logger = get_logger(__name__)
 
-csv.field_size_limit(sys.maxsize)
+maxInt = sys.maxsize
+while True:
+    try:
+        csv.field_size_limit(maxInt)
+        break
+    except OverflowError:
+        maxInt = int(maxInt/10)
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 _PHISHING_DIR = _DATA_DIR / "phishing_corpus"

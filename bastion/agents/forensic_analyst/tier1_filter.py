@@ -76,7 +76,10 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
     if not user:
         for rec in records:
             identity = rec.get("userIdentity", {})
-            user = identity.get("userName", "") or identity.get("principalId", "")
+            if isinstance(identity, dict):
+                user = str(identity.get("userName", "") or identity.get("principalId", "") or "")
+            else:
+                user = str(identity) if identity else ""
             if user:
                 break
 
@@ -86,10 +89,10 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
     source_ips: set[str] = set()
 
     for rec in records:
-        event_name = rec.get("eventName", "")
-        src_ip = rec.get("sourceIPAddress", "")
-        error_code = rec.get("errorCode", "")
-        event_time = rec.get("eventTime", "")
+        event_name = str(rec.get("eventName", "") or "")
+        src_ip = str(rec.get("sourceIPAddress", "") or "")
+        error_code = str(rec.get("errorCode", "") or "")
+        event_time = str(rec.get("eventTime", "") or "")
 
         if src_ip:
             source_ips.add(src_ip)

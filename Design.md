@@ -257,7 +257,7 @@ EventBridge
 | Van de | Khong SQS | Co SQS |
 |--------|-----------|--------|
 | Log burst 10k/s | 10k Lambda invoke -> Bill khong lo | Tier 1 loc 99% -> ~100 msg in SQS |
-| LLM rate limit | Bedrock/Gemini bi throttle | SQS + batch = controlled throughput |
+| LLM rate limit | Gemini API bi throttle | SQS + batch = controlled throughput |
 | Retry | Event mat neu Lambda fail | SQS tu dong retry + DLQ |
 | Observability | Kho theo doi | SQS metrics + CloudWatch alarms |
 
@@ -472,11 +472,20 @@ BASTION_SEMANTIC_ANALYZER_THRESHOLD=0.8  # Confidence threshold (0.7-0.9)
 
 Chi tiet: xem section 5.3.1 (Semantic Analyzer) trong file nay
 
-### 5.4 Threat Intel Agent
+### 5.4 Threat Intel Agent (Hybrid 2-Tier + ReAct)
 
-- Nhan IOCs tu cac agent khac, thuc hien reputation scanning.
-- **Tools** (planned): VirusTotal, AbuseIPDB, WHOIS, IP geolocation
-- Hien tai: skeleton implementation dung Gemini raw text.
+- **Tier 1**: Static IOC filter (whitelist, deduplication, risk scoring)
+  - Remove internal IPs (RFC 1918)
+  - Filter whitelisted domains (google.com, github.com, etc.)
+  - Flag Tor exit nodes, high-risk TLDs, brand impersonation
+  - SKIP decision if no suspicious IOCs remain
+- **Tier 2**: ReAct agent (Gemini + 4 tools) + Self-Reflection
+  - **Tools**: `virustotal_lookup`, `abuseipdb_check`, `whois_domain_lookup`, `ip_geolocation`
+  - **Graceful fallback**: Heuristic-based analysis when API keys not configured
+  - **Self-reflection**: Reduce false positives (check for legitimate services)
+- **Output**: `ThreatIntelOutput` (Pydantic: status, confidence, IOC enrichments, MITRE tactics, threat actor attribution)
+- **Implementation Status**: ✅ Fully implemented with heuristic fallbacks
+- Chi tiet: xem `bastion/agents/threat_intel/README.md`
 
 ### 5.5 Information Gathering Loop
 
@@ -784,7 +793,7 @@ PINECONE_DIMENSION=384                   # Must be 384 for semantic embeddings
 # -- LangGraph & LLM --
 langgraph>=0.2.0
 langchain-core>=0.3.0
-langchain-google-genai>=2.0.0       # Gemini integration
+langchain-google-genai>=2.0.0       # Gemini integration (Google AI)
 
 # -- AWS SDK --
 boto3>=1.35.0
@@ -797,8 +806,8 @@ rich>=13.0.0
 # -- Data Validation --
 pydantic>=2.0.0
 
-# -- Vector Store (FAISS) --
-faiss-cpu>=1.7.0
+# -- Vector Store (Pinecone) --
+pinecone>=5.0.0
 numpy>=1.24.0
 
 # -- Email Parsing --
@@ -1104,13 +1113,20 @@ fields @timestamp, agent, model_type, cost_estimate
 ### 14.1 Quick Test
 
 ```bash
+# Validate Threat Intel integration
+python scripts/validate_threat_intel.py
+
 # Test all ML components end-to-end
 python scripts/test_ml_integration.py
 
 # Test individual agents
 python scripts/run_local.py --email      # Email Analyst only
 python scripts/run_local.py --forensic   # Forensic Analyst only
+python scripts/run_local.py --threat     # Threat Intel only
 python scripts/run_local.py --full       # Full multi-agent workflow
+
+# Test Threat Intel E2E
+python scripts/test_e2e_threat_intel.py
 ```
 
 ### 14.2 Unit Tests
@@ -1123,6 +1139,8 @@ pytest tests/unit/ -v
 pytest tests/unit/test_tier1_filter.py
 pytest tests/unit/test_ml_models.py
 pytest tests/unit/test_semantic_analyzer.py
+pytest tests/unit/test_threat_intel_tier1.py
+pytest tests/unit/test_threat_intel_tools.py
 ```
 
 ### 14.3 Integration Tests
@@ -1136,6 +1154,10 @@ pytest tests/integration/test_lambda_handlers.py
 
 # Test LangGraph workflow
 pytest tests/integration/test_workflow.py
+
+# Test Threat Intel integration
+pytest tests/integration/test_threat_intel_node.py
+pytest tests/integration/test_full_workflow_with_threat_intel.py
 ```
 
 ### 14.4 ML Model Testing

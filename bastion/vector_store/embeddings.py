@@ -27,6 +27,8 @@ USE_SEMANTIC_EMBEDDINGS = os.getenv("BASTION_USE_SEMANTIC_EMBEDDINGS", "true").l
 HASH_EMBEDDING_DIM = 128
 SEMANTIC_EMBEDDING_DIM = 384
 
+EMBEDDING_DIM = SEMANTIC_EMBEDDING_DIM if USE_SEMANTIC_EMBEDDINGS else HASH_EMBEDDING_DIM
+
 
 def _hash_to_floats(text: str, dim: int) -> list[float]:
     """Turn *text* into *dim* floats via repeated SHA-256 hashing.
