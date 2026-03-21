@@ -129,6 +129,32 @@ export const triggerAnalysis = async (eventType: string): Promise<{message: stri
   }
 };
 
+export const fetchStats = async (): Promise<any> => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const response = await fetch(`${API_URL}/stats`);
+    if (!response.ok) throw new Error("Failed to fetch stats");
+    return await response.json();
+  } catch (error) {
+    console.error("API stats error:", error);
+    return null;
+  }
+};
+
+export const uploadFile = async (file: File): Promise<{message: string, report_id: string, event_type: string} | null> => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+    if (!response.ok) throw new Error("Failed to upload file");
+    return await response.json();
+  } catch (error) {
+    console.error("API upload error:", error);
+    return null;
+  }
+};
+
 export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
   const report = await fetchLatestReport();
   

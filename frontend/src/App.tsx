@@ -3,6 +3,7 @@ import Orchestrator from './pages/Orchestrator';
 import SOCDashboard from './pages/SOCDashboard';
 import Pipeline from './pages/Pipeline';
 import Architecture from './pages/Architecture';
+import Metrics from './pages/Metrics';
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
         <Route path="/orchestrator" element={<Orchestrator />} />
         <Route path="/pipeline" element={<Pipeline />} />
         <Route path="/architecture" element={<Architecture />} />
+        <Route path="/metrics" element={<Metrics />} />
       </Routes>
     </BrowserRouter>
   );

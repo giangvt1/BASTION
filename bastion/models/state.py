@@ -70,6 +70,9 @@ class BastionState(TypedDict):
     # ── Error tracking (agents append errors here) ──
     error_logs: Annotated[list[str], operator.add]
 
+    # ── Pipeline activity logs for visualization ──
+    pipeline_logs: Annotated[list[dict], operator.add]  # {node, action, detail, ts}
+
     # ── Final Output ──
     risk_score: Optional[float]                        # 0.0 – 1.0
     final_report: Optional[str]                        # Synthesized narrative report

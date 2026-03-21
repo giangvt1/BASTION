@@ -112,16 +112,28 @@ def _extract_log_context(payload: dict) -> dict:
     """Extract forensic context from different event payload structures."""
     detail = payload.get("detail", payload)
 
-    context_logs = detail.get("context_logs", {})
-    if not context_logs:
-        if "Records" in detail:
-            context_logs = {"Records": detail["Records"]}
-        elif any(k in detail for k in ("eventName", "eventTime", "eventID", "sourceIPAddress")):
-            # Flat EventBridge event or CSV row
-            context_logs = {"Records": [detail]}
+    context_logs = {}
+    user = ""
+    anomaly_trigger = ""
 
-    user = detail.get("user", "")
-    anomaly_trigger = detail.get("anomaly_trigger", "")
+    if isinstance(detail, list):
+        # CSV batch log upload format
+        context_logs = {"Records": detail}
+        if detail and isinstance(detail[0], dict):
+            # Extract basic data from the first record if available
+            user = detail[0].get("user", "")
+            anomaly_trigger = detail[0].get("anomaly_trigger", "")
+    elif isinstance(detail, dict):
+        context_logs = detail.get("context_logs", {})
+        if not context_logs:
+            if "Records" in detail:
+                context_logs = {"Records": detail["Records"]}
+            elif any(k in detail for k in ("eventName", "eventTime", "eventID", "sourceIPAddress")):
+                # Flat EventBridge event or CSV row
+                context_logs = {"Records": [detail]}
+
+        user = detail.get("user", "")
+        anomaly_trigger = detail.get("anomaly_trigger", "")
 
     # Try to extract user from records if not provided
     if not user and context_logs.get("Records"):

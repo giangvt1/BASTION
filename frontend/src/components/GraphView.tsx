@@ -12,7 +12,7 @@ export const GraphView = () => {
     if (isRunning) return;
     
     // Trigger new analysis
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     try {
       await fetch(`${API_URL}/trigger/email`, { method: 'POST' });
       // Poll for updates

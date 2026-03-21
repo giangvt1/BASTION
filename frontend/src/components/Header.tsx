@@ -25,6 +25,7 @@ export const Header = () => {
           <Link to="/pipeline" className={getLinkClass("/pipeline")}>Pipeline</Link>
           <Link to="/orchestrator" className={getLinkClass("/orchestrator")}>Orchestrator</Link>
           <Link to="/architecture" className={getLinkClass("/architecture")}>Architecture</Link>
+          <Link to="/metrics" className={getLinkClass("/metrics")}>Metrics</Link>
         </nav>
 
         <div className="flex items-center gap-4">

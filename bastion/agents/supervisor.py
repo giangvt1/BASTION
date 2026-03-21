@@ -61,11 +61,35 @@ def supervisor_node(state: BastionState) -> dict:
         iocs_count=len(state.get("iocs", [])),
     )
 
+    # ── Hard-Rules for Initial Routing (Fix for False Negatives) ──
+    if iteration == 0:
+        event_type = state.get("event_type", "unknown")
+        decision = None
+        if event_type == "email":
+            decision = "DELEGATE_EMAIL"
+        elif event_type in ("cloudtrail", "syslog"):
+            decision = "DELEGATE_FORENSIC"
+            
+        if decision:
+            log.info("supervisor.hard_rule_routing", decision=decision)
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).isoformat()
+            return {
+                "next_agent": decision,
+                "iteration_count": iteration + 1,
+                "messages": [AIMessage(content=f"[Supervisor] Hard-Rule Routing -> {decision}")],
+                "pipeline_logs": [
+                    {"node": "supervisor", "action": "Applying Hard-Rule", "detail": f"Event type '{event_type}' detected. Bypassing LLM for guaranteed initial delegation.", "ts": ts},
+                    {"node": "supervisor", "action": f"Routing → {decision}", "detail": f"Delegating to {decision.replace('DELEGATE_', '').lower()} agent", "ts": ts},
+                ],
+            }
+
     if iteration >= MAX_ITERATIONS:
         log.warning("supervisor.max_iterations_reached", max=MAX_ITERATIONS)
         return {
             "next_agent": "SYNTHESIZE",
             "iteration_count": iteration + 1,
+            "pipeline_logs": [{"node": "supervisor", "action": "Max iterations reached", "detail": f"Forced SYNTHESIZE after {MAX_ITERATIONS} iterations", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}],
         }
 
     # Build context message for LLM
@@ -120,6 +144,10 @@ def supervisor_node(state: BastionState) -> dict:
         "next_agent": decision,
         "iteration_count": iteration + 1,
         "messages": [AIMessage(content=f"[Supervisor] Routing -> {decision}")],
+        "pipeline_logs": [
+            {"node": "supervisor", "action": "Evaluating state", "detail": f"Iteration {iteration}: {len(state.get('findings', []))} findings, {len(state.get('iocs', []))} IOCs gathered", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
+            {"node": "supervisor", "action": f"Routing → {decision}", "detail": f"Delegating to {'synthesis engine' if decision == 'SYNTHESIZE' else decision.replace('DELEGATE_', '').lower() + ' agent'} for {'final report generation' if decision == 'SYNTHESIZE' else 'specialized analysis'}", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
+        ],
     }
 
 

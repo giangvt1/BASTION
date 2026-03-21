@@ -52,7 +52,7 @@ def cloudtrail_query_tool(
 
         where_clauses = []
         if username:
-            where_clauses.append(f"useridentity.username = '{username}'")
+            where_clauses.append(f"useridentityusername = '{username}'")
         if event_name:
             where_clauses.append(f"eventname = '{event_name}'")
 
@@ -60,8 +60,7 @@ def cloudtrail_query_tool(
 
         sql = (
             f"SELECT eventtime, eventname, eventsource, sourceipaddress, "
-            f"errorcode, errormessage, useridentity.username, "
-            f"requestparameters, responseelements "
+            f"errorcode, errormessage, useridentityusername "
             f"FROM cloudtrail_logs "
             f"WHERE {where_str} "
             f"ORDER BY eventtime DESC "

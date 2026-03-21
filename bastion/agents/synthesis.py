@@ -39,7 +39,8 @@ def synthesis_node(state: BastionState) -> dict:
     if not findings and not iocs:
         return {
             "final_report": "No significant findings or anomalies detected during analysis.",
-            "messages": [AIMessage(content="[Synthesis] No findings to report.")]
+            "messages": [AIMessage(content="[Synthesis] No findings to report.")],
+            "pipeline_logs": [{"node": "synthesis", "action": "Analysis complete", "detail": "No significant findings or IOCs detected. Event appears benign.", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}],
         }
 
     try:
@@ -61,11 +62,21 @@ def synthesis_node(state: BastionState) -> dict:
         # Calculate a rough risk score based on severities
         score = 0.0
         for f in findings:
-            sev = f.get("severity", "LOW")
+            sev = str(f.get("severity", "LOW")).upper()
             if sev == "CRITICAL": score += 0.4
             elif sev == "HIGH": score += 0.25
-            elif sev == "MEDIUM": score += 0.1
-            elif sev == "LOW": score += 0.05
+            elif sev == "MEDIUM": score += 0.15
+            elif sev == "LOW": score += 0.08
+            elif sev == "INFO": score += 0.05
+            else: score += 0.1  # Unknown severity gets moderate score
+        
+        # Add bonus score for IOCs discovered
+        ioc_bonus = min(0.2, len(iocs) * 0.03)
+        score += ioc_bonus
+        
+        # Ensure at least a base risk when findings exist
+        if findings and score < 0.15:
+            score = 0.15
             
         risk_score = min(1.0, score)
 
@@ -77,5 +88,9 @@ def synthesis_node(state: BastionState) -> dict:
     return {
         "final_report": final_report,
         "risk_score": risk_score,
-        "messages": [AIMessage(content="[Synthesis] Final report generated successfully.")]
+        "messages": [AIMessage(content="[Synthesis] Final report generated successfully.")],
+        "pipeline_logs": [
+            {"node": "synthesis", "action": "Generating executive report", "detail": f"Synthesizing {len(findings)} findings and {len(iocs)} IOCs into executive summary via Gemini LLM", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
+            {"node": "synthesis", "action": "Risk score computed", "detail": f"Final risk score: {(risk_score*100):.0f}% — Report length: {len(final_report)} chars", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
+        ],
     }

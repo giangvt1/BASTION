@@ -76,7 +76,7 @@ def query_cloudtrail_athena(
                     "StateChangeReason", "Unknown"
                 )
                 log.error("athena.query_failed", state=state, reason=reason)
-                raise RuntimeError(f"Athena query {state}: {reason}")
+                return [{"error": f"Athena query {state}: {reason}. Hint: local environments may miss a data lake, try fallback mechanisms."}]
 
             time.sleep(POLL_INTERVAL_SECONDS)
             elapsed += POLL_INTERVAL_SECONDS

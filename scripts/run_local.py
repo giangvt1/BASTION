@@ -16,6 +16,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import random
+import pandas as pd
 from pathlib import Path
 
 # Ensure the bastion package is importable
@@ -32,34 +34,45 @@ logger = get_logger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / "bastion" / "data" / "sample_events"
 
 
-def load_email_event() -> dict:
-    """Load the sample phishing email as an event payload."""
-    eml_path = DATA_DIR / "suspicious_email.eml"
-    if not eml_path.exists():
-        raise FileNotFoundError(f"Sample email not found: {eml_path}")
+def _clean_record(d):
+    """Sanitize pandas NaNs and cast all values to strings for downstream compatibility."""
+    return {k: ("" if pd.isna(v) else str(v)) for k, v in d.items()}
 
-    raw_eml = eml_path.read_text(encoding="utf-8")
+def load_email_event() -> dict:
+    """Load a random phishing email from the dataset as an event payload."""
+    dataset_path = DATA_DIR.parent.parent.parent / "dataset" / "mail" / "Nigerian_Fraud.csv"
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
+
+    # Read 100 rows to keep memory usage low, then sample 1 row for variety
+    df = pd.read_csv(dataset_path, nrows=100, encoding="utf-8")
+    record = _clean_record(df.sample(1).iloc[0].to_dict())
+    
+    raw_eml = f"From: {record.get('sender', 'unknown')}\nTo: {record.get('receiver', 'unknown')}\nSubject: {record.get('subject', 'unknown')}\n\n{record.get('body', '')}"
+    
     return {
         "event_type": "email",
         "source": "aws.s3",
         "detail": {
             "raw_eml": raw_eml,
-            "s3_key": "emails/suspicious_01.eml",
+            "s3_key": "emails/dataset_fraud_sample.eml",
         },
     }
 
-
 def load_forensic_event() -> dict:
-    """Load the sample CloudTrail anomaly as an event payload."""
-    json_path = DATA_DIR / "cloudtrail_anomaly.json"
-    if not json_path.exists():
-        raise FileNotFoundError(f"Sample CloudTrail data not found: {json_path}")
+    """Load a random CloudTrail log from the dataset as an event payload."""
+    dataset_path = DATA_DIR.parent.parent.parent / "dataset" / "logs" / "dec12_18features.csv"
+    if not dataset_path.exists():
+        raise FileNotFoundError(f"Dataset not found: {dataset_path}")
 
-    data = json.loads(json_path.read_text(encoding="utf-8"))
+    # Read 100 rows to keep memory usage low, then sample 1 row for variety
+    df = pd.read_csv(dataset_path, nrows=100, encoding="utf-8")
+    record = _clean_record(df.sample(1).iloc[0].to_dict())
+    
     return {
         "event_type": "cloudtrail",
         "source": "aws.cloudtrail",
-        "detail": data,
+        "detail": record,
     }
 
 
