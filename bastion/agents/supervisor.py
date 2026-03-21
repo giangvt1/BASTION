@@ -98,7 +98,8 @@ def supervisor_node(state: BastionState) -> dict:
     user_message = "\n".join(context_parts)
     user_message += (
         "\n\nDecide the next action. Respond with exactly one of: "
-        "DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE."
+        "DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE.\n"
+        "IMPORTANT: Do NOT delegate to an agent you have already delegated to in previous iterations unless new evidence specifically requires it. If you have already called DELEGATE_THREAT and it found 0 findings, do NOT call it again, just SYNTHESIZE."
     )
 
     try:

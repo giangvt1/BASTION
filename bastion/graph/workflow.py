@@ -16,6 +16,7 @@ from bastion.agents.email_analyst import email_analyst_node
 from bastion.agents.forensic_analyst import forensic_analyst_node
 from bastion.agents.supervisor import supervisor_node
 from bastion.agents.threat_intel import threat_intel_node
+from bastion.agents.synthesis import synthesis_node
 from bastion.logger import get_logger
 from bastion.models.state import BastionState
 
@@ -57,6 +58,7 @@ def build_graph() -> StateGraph:
     graph.add_node("email_analyst", email_analyst_node)
     graph.add_node("forensic_analyst", forensic_analyst_node)
     graph.add_node("threat_intel", threat_intel_node)
+    graph.add_node("synthesis", synthesis_node)
 
     # ── Entry Point ──
     graph.set_entry_point("supervisor")
@@ -69,7 +71,7 @@ def build_graph() -> StateGraph:
             "DELEGATE_EMAIL": "email_analyst",
             "DELEGATE_FORENSIC": "forensic_analyst",
             "DELEGATE_THREAT": "threat_intel",
-            "SYNTHESIZE": END,
+            "SYNTHESIZE": "synthesis",
         },
     )
 
@@ -77,6 +79,7 @@ def build_graph() -> StateGraph:
     graph.add_edge("email_analyst", "supervisor")
     graph.add_edge("forensic_analyst", "supervisor")
     graph.add_edge("threat_intel", "supervisor")
+    graph.add_edge("synthesis", END)
 
     compiled = graph.compile()
     logger.info("graph.compiled")
