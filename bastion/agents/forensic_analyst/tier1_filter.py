@@ -26,6 +26,25 @@ logger = get_logger(__name__)
 USE_LSTM_UBA = os.getenv("BASTION_USE_LSTM_UBA", "true").lower() == "true"
 
 
+def _sanitize_ip(ip: str) -> str:
+    """Sanitize and pad truncated IPs from dataset (e.g. '253.112' -> '10.0.253.112')."""
+    if not ip or not isinstance(ip, str) or ip == "nan":
+        return "0.0.0.0"
+    
+    parts = ip.split('.')
+    # If already a valid IPv4, return as is
+    if len(parts) == 4 and all(p.isdigit() for p in parts):
+        return ip
+        
+    # Handle truncated IPs from the kaggle/dec12 dataset (usually 2 octets)
+    if len(parts) == 2 and all(p.isdigit() for p in parts):
+        return f"10.0.{parts[0]}.{parts[1]}"
+    if len(parts) == 3 and all(p.isdigit() for p in parts):
+        return f"10.{parts[0]}.{parts[1]}.{parts[2]}"
+        
+    return ip
+
+
 # ── Suspicious CloudTrail event names ───────────────────────────────────
 
 _HIGH_RISK_EVENTS = {
@@ -90,7 +109,7 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
 
     for rec in records:
         event_name = str(rec.get("eventName", "") or "")
-        src_ip = str(rec.get("sourceIPAddress", "") or "")
+        src_ip = _sanitize_ip(str(rec.get("sourceIPAddress", "") or ""))
         error_code = str(rec.get("errorCode", "") or "")
         event_time = str(rec.get("eventTime", "") or "")
 

@@ -66,6 +66,16 @@ class BastionConfig:
         default_factory=lambda: int(os.getenv("PINECONE_DIMENSION", "384"))
     )
 
+    # ── VirusTotal (Threat Intel) ──
+    virustotal_api_key: str = field(
+        default_factory=lambda: os.getenv("VIRUSTOTAL_API_KEY", "")
+    )
+
+    # ── AbuseIPDB (Threat Intel) ──
+    abuseipdb_api_key: str = field(
+        default_factory=lambda: os.getenv("ABUSEIPDB_API_KEY", "")
+    )
+
     # ── SQS (Buffer Queue between Tier 1 filter and LangGraph core) ──
     sqs_queue_url: str = field(
         default_factory=lambda: os.getenv("BASTION_SQS_QUEUE_URL", "")

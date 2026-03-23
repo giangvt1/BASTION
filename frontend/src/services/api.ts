@@ -222,3 +222,32 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
     return node;
   });
 };
+
+export const submitFeedback = async (reportId: string, feedbackType: string, notes: string = '') => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const response = await fetch(`${API_URL}/reports/${reportId}/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ feedback_type: feedbackType, notes })
+    });
+    return response.ok;
+  } catch (error) {
+    console.error("Feedback error:", error);
+    return false;
+  }
+};
+
+export const pushSigmaRule = async (reportId: string) => {
+  try {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+    const response = await fetch(`${API_URL}/reports/${reportId}/push-sigma`, {
+      method: 'POST'
+    });
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error("Push sigma error:", error);
+    return null;
+  }
+};

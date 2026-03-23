@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
-import { fetchLatestReport, fetchNodes, fetchTraces, triggerAnalysis, uploadFile } from '../services/api';
+import { fetchLatestReport, fetchNodes, fetchTraces, triggerAnalysis, uploadFile, submitFeedback, pushSigmaRule } from '../services/api';
 import type { Report, GraphNodeStatus, TraceEvent } from '../types';
 
 // Pipeline node definitions
@@ -64,8 +64,31 @@ export default function SOCDashboard() {
   const [expandedTraceId, setExpandedTraceId] = useState<string | null>(null);
   const [expandedPipelineNode, setExpandedPipelineNode] = useState<string | null>(null);
   const [soarActions, setSoarActions] = useState<{ label: string, status: string, icon: string }[] | null>(null);
+  const [isPushing, setIsPushing] = useState(false);
 
-  const handleHiTLAction = (action: string) => {
+  const handlePushSigma = async () => {
+    if (!report) return;
+    setIsPushing(true);
+    const res = await pushSigmaRule(report.report_id);
+    setIsPushing(false);
+    if (res && res.status === 'success') {
+      alert("✅ " + res.message);
+    } else {
+      alert("⚠️ " + (res?.message || "Failed to push rule."));
+    }
+  };
+
+  const handleHiTLAction = async (action: string) => {
+    let feedbackType = '';
+    if (action === 'Marked False Positive') feedbackType = 'false_positive';
+    else if (action === 'Escalated to Tier 3') feedbackType = 'escalated';
+    else if (action === 'Approved Mitigation') feedbackType = 'approved';
+
+    if (report && feedbackType) {
+      await submitFeedback(report.report_id, feedbackType);
+      // alert(`Feedback recorded: ${action}. Used for RLHF API internal model.`);
+    }
+
     if (action === 'Marked False Positive') {
       setShowFPFeedback(true);
     }
@@ -122,22 +145,22 @@ export default function SOCDashboard() {
     const agentFindings = (report.findings || []).filter((f: any) => {
       const agentName = (f.agent || '').toLowerCase();
       return source.toLowerCase().includes('email') ? agentName.includes('email') :
-             source.toLowerCase().includes('forensic') ? agentName.includes('forensic') :
-             source.toLowerCase().includes('threat') ? agentName.includes('threat') :
-             false;
+        source.toLowerCase().includes('forensic') ? agentName.includes('forensic') :
+          source.toLowerCase().includes('threat') ? agentName.includes('threat') :
+            false;
     });
     const agentIOCs = (report.iocs || []).filter((ioc: any) => {
       const srcAgent = (ioc.source_agent || '').toLowerCase();
       return source.toLowerCase().includes('email') ? srcAgent.includes('email') :
-             source.toLowerCase().includes('forensic') ? srcAgent.includes('forensic') :
-             source.toLowerCase().includes('threat') ? srcAgent.includes('threat') :
-             false;
+        source.toLowerCase().includes('forensic') ? srcAgent.includes('forensic') :
+          source.toLowerCase().includes('threat') ? srcAgent.includes('threat') :
+            false;
     });
-    
+
     // For Synthesis, include the final report content
     const isSynthesis = source.toLowerCase().includes('synthes');
-    return { 
-      findings: agentFindings, 
+    return {
+      findings: agentFindings,
       iocs: agentIOCs,
       final_report: isSynthesis ? report.final_report : undefined,
       risk_score: isSynthesis ? report.risk_score : undefined
@@ -195,8 +218,8 @@ export default function SOCDashboard() {
                     <div className={`size-12 rounded-xl flex items-center justify-center transition-all duration-500 relative
                       ${node.status === 'completed' ? 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 border-2 border-emerald-300 dark:border-emerald-700 shadow-sm shadow-emerald-200' :
                         node.status === 'running' ? 'bg-primary/10 text-primary border-2 border-primary shadow-lg shadow-primary/20' :
-                        node.status === 'error' ? 'bg-red-100 dark:bg-red-900/40 text-red-600 border-2 border-red-300 dark:border-red-700' :
-                        'bg-slate-100 dark:bg-slate-800 text-slate-400 border-2 border-slate-200 dark:border-slate-700'}
+                          node.status === 'error' ? 'bg-red-100 dark:bg-red-900/40 text-red-600 border-2 border-red-300 dark:border-red-700' :
+                            'bg-slate-100 dark:bg-slate-800 text-slate-400 border-2 border-slate-200 dark:border-slate-700'}
                     `}>
                       {node.status === 'running' && (
                         <span className="absolute inset-0 rounded-xl border-2 border-primary animate-ping opacity-30"></span>
@@ -233,7 +256,7 @@ export default function SOCDashboard() {
                       <div className={`absolute inset-0 rounded-full transition-all duration-700
                         ${node.status === 'completed' ? 'bg-gradient-to-r from-emerald-400 to-emerald-300' :
                           node.status === 'running' ? 'bg-gradient-to-r from-primary/60 to-primary/20' :
-                          'bg-slate-200 dark:bg-slate-700'}
+                            'bg-slate-200 dark:bg-slate-700'}
                       `}></div>
                       {node.status === 'running' && (
                         <div className="absolute top-1/2 -translate-y-1/2 size-2 rounded-full bg-primary animate-[moveRight_1.5s_ease-in-out_infinite]"></div>
@@ -276,12 +299,12 @@ export default function SOCDashboard() {
                       <div className="size-5 rounded flex items-center justify-center bg-emerald-900/30 text-emerald-400 mt-0.5 flex-shrink-0">
                         <span className="material-symbols-outlined text-[11px]">
                           {log.action?.toLowerCase().includes('routing') ? 'fork_right' :
-                           log.action?.toLowerCase().includes('evaluat') ? 'psychology' :
-                           log.action?.toLowerCase().includes('generat') ? 'draw' :
-                           log.action?.toLowerCase().includes('risk') ? 'speed' :
-                           log.action?.toLowerCase().includes('event') || log.action?.toLowerCase().includes('file') ? 'sensors' :
-                           log.action?.toLowerCase().includes('complete') ? 'check_circle' :
-                           'arrow_forward'}
+                            log.action?.toLowerCase().includes('evaluat') ? 'psychology' :
+                              log.action?.toLowerCase().includes('generat') ? 'draw' :
+                                log.action?.toLowerCase().includes('risk') ? 'speed' :
+                                  log.action?.toLowerCase().includes('event') || log.action?.toLowerCase().includes('file') ? 'sensors' :
+                                    log.action?.toLowerCase().includes('complete') ? 'check_circle' :
+                                      'arrow_forward'}
                         </span>
                       </div>
                       <div className="flex-1 min-w-0">
@@ -508,11 +531,10 @@ export default function SOCDashboard() {
                                   <div className="flex justify-between items-start mb-2">
                                     <span className="text-xs font-bold text-slate-200 uppercase tracking-widest">Executive Summary Generated</span>
                                     {details.risk_score !== undefined && (
-                                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                        details.risk_score >= 0.8 ? 'bg-red-900/60 text-red-400' :
-                                        details.risk_score >= 0.5 ? 'bg-orange-900/60 text-orange-400' :
-                                        'bg-green-900/60 text-green-400'
-                                      }`}>
+                                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${details.risk_score >= 0.8 ? 'bg-red-900/60 text-red-400' :
+                                          details.risk_score >= 0.5 ? 'bg-orange-900/60 text-orange-400' :
+                                            'bg-green-900/60 text-green-400'
+                                        }`}>
                                         Risk Score: {(details.risk_score * 100).toFixed(0)}%
                                       </span>
                                     )}
@@ -522,18 +544,17 @@ export default function SOCDashboard() {
                                   </div>
                                 </div>
                               )}
-                            
+
                               {/* Findings */}
                               {!isSynthesis && details.findings.length > 0 && details.findings.map((f: any, fi: number) => (
                                 <div key={fi} className="bg-slate-800/60 rounded-lg p-3 border border-slate-700">
                                   <div className="flex justify-between items-start mb-1.5">
                                     <span className="text-xs font-bold text-slate-200">{f.finding_type || f.mitre_tactic || 'Detection'}</span>
-                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${
-                                      f.severity === 'CRITICAL' ? 'bg-red-900/60 text-red-400' :
-                                      f.severity === 'HIGH' ? 'bg-orange-900/60 text-orange-400' :
-                                      f.severity === 'MEDIUM' ? 'bg-amber-900/60 text-amber-400' :
-                                      'bg-slate-700 text-slate-400'
-                                    }`}>{f.severity}</span>
+                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${f.severity === 'CRITICAL' ? 'bg-red-900/60 text-red-400' :
+                                        f.severity === 'HIGH' ? 'bg-orange-900/60 text-orange-400' :
+                                          f.severity === 'MEDIUM' ? 'bg-amber-900/60 text-amber-400' :
+                                            'bg-slate-700 text-slate-400'
+                                      }`}>{f.severity}</span>
                                   </div>
                                   <p className="text-[11px] text-slate-400 leading-relaxed mb-2">{f.description?.substring(0, 300)}</p>
                                   <div className="flex gap-3 text-[9px]">
@@ -544,7 +565,7 @@ export default function SOCDashboard() {
                                   </div>
                                 </div>
                               ))}
-                              
+
                               {!isSynthesis && details.findings.length === 0 && (
                                 <div className="text-[11px] text-slate-500 text-center py-2">No specific findings from this agent</div>
                               )}
@@ -591,6 +612,9 @@ export default function SOCDashboard() {
 
                           {/* HiTL Actions */}
                           <div className="mt-4 pt-4 border-t border-primary/20 flex flex-wrap gap-2">
+                            <button onClick={handlePushSigma} disabled={isPushing} className={`bg-purple-600 text-white text-xs font-bold py-1.5 px-3 rounded flex items-center gap-1 transition-colors ${isPushing ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-700'}`}>
+                              <span className={`material-symbols-outlined text-[14px] ${isPushing ? 'animate-spin' : ''}`}>{isPushing ? 'autorenew' : 'sync'}</span> {isPushing ? 'Pushing...' : 'Push Sigma to SIEM'}
+                            </button>
                             <button onClick={() => setShowExplain(!showExplain)} className="bg-slate-800 text-white text-xs font-bold py-1.5 px-3 rounded flex items-center gap-1 hover:bg-slate-700 transition-colors">
                               <span className="material-symbols-outlined text-[14px]">psychology</span> Explain Verdict
                             </button>
@@ -616,16 +640,14 @@ export default function SOCDashboard() {
                           </div>
                           <div className="p-3 space-y-2">
                             {soarActions.map((action, ai) => (
-                              <div key={ai} className={`flex items-center gap-3 p-2.5 rounded-lg transition-all duration-500 ${
-                                action.status === 'done' ? 'bg-emerald-900/20 border border-emerald-800/50' :
-                                action.status === 'running' ? 'bg-primary/10 border border-primary/30' :
-                                'bg-slate-800/40 border border-slate-800'
-                              }`}>
-                                <div className={`size-7 rounded-lg flex items-center justify-center transition-all ${
-                                  action.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' :
-                                  action.status === 'running' ? 'bg-primary/20 text-primary animate-pulse' :
-                                  'bg-slate-800 text-slate-500'
+                              <div key={ai} className={`flex items-center gap-3 p-2.5 rounded-lg transition-all duration-500 ${action.status === 'done' ? 'bg-emerald-900/20 border border-emerald-800/50' :
+                                  action.status === 'running' ? 'bg-primary/10 border border-primary/30' :
+                                    'bg-slate-800/40 border border-slate-800'
                                 }`}>
+                                <div className={`size-7 rounded-lg flex items-center justify-center transition-all ${action.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' :
+                                    action.status === 'running' ? 'bg-primary/20 text-primary animate-pulse' :
+                                      'bg-slate-800 text-slate-500'
+                                  }`}>
                                   {action.status === 'done' ? (
                                     <span className="material-symbols-outlined text-sm">check</span>
                                   ) : action.status === 'running' ? (
@@ -634,16 +656,14 @@ export default function SOCDashboard() {
                                     <span className="material-symbols-outlined text-sm">{action.icon}</span>
                                   )}
                                 </div>
-                                <span className={`text-xs font-bold flex-1 ${
-                                  action.status === 'done' ? 'text-emerald-300' :
-                                  action.status === 'running' ? 'text-white' :
-                                  'text-slate-500'
-                                }`}>{action.label}</span>
-                                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                                  action.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' :
-                                  action.status === 'running' ? 'bg-primary/20 text-primary' :
-                                  'text-slate-600'
-                                }`}>{action.status === 'done' ? 'COMPLETED' : action.status === 'running' ? 'RUNNING...' : 'QUEUED'}</span>
+                                <span className={`text-xs font-bold flex-1 ${action.status === 'done' ? 'text-emerald-300' :
+                                    action.status === 'running' ? 'text-white' :
+                                      'text-slate-500'
+                                  }`}>{action.label}</span>
+                                <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${action.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' :
+                                    action.status === 'running' ? 'bg-primary/20 text-primary' :
+                                      'text-slate-600'
+                                  }`}>{action.status === 'done' ? 'COMPLETED' : action.status === 'running' ? 'RUNNING...' : 'QUEUED'}</span>
                               </div>
                             ))}
                           </div>
@@ -666,25 +686,25 @@ export default function SOCDashboard() {
                                   const isIP = /\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(word);
                                   const isUrgent = /urgent|suspended|24 hours|verify|password|login/i.test(word);
                                   const isLink = /http[s]?:\/\//i.test(word);
-                                  
+
                                   if (isIP) return <span key={i} onClick={() => { setSelectedIP(word); setShowIntel(true); }} className="bg-red-900/50 text-red-400 px-1 rounded font-bold cursor-pointer hover:bg-emerald-500 hover:text-white transition-all mx-0.5">{word} </span>;
                                   if (isLink) return <span key={i} className="bg-red-900/50 text-red-400 px-1 rounded underline font-bold mx-0.5" title="Suspicious Link">{word} </span>;
                                   if (isUrgent) return <span key={i} className="bg-yellow-900/50 text-yellow-500 px-1 rounded font-bold mx-0.5">{word} </span>;
                                   return word + ' ';
                                 });
                               }
-                              
+
                               // If it's a JSON log payload (e.g. CloudTrail)
                               if (ePayload.detail || Object.keys(ePayload).length > 0) {
                                 const jsonStr = JSON.stringify(ePayload.detail || ePayload, null, 2);
                                 return jsonStr.split('\n').map((line: string, i: number) => {
-                                  if (line.includes('"userName":') || line.includes('"principalId":')) return <span key={i} className="text-yellow-500">{line}<br/></span>;
-                                  if (line.includes('"sourceIPAddress":')) return <span key={i} className="text-red-400 font-bold">{line}<br/></span>;
-                                  if (line.includes('"eventName":')) return <span key={i} className="text-indigo-400">{line}<br/></span>;
-                                  return <span key={i}>{line}<br/></span>;
+                                  if (line.includes('"userName":') || line.includes('"principalId":')) return <span key={i} className="text-yellow-500">{line}<br /></span>;
+                                  if (line.includes('"sourceIPAddress":')) return <span key={i} className="text-red-400 font-bold">{line}<br /></span>;
+                                  if (line.includes('"eventName":')) return <span key={i} className="text-indigo-400">{line}<br /></span>;
+                                  return <span key={i}>{line}<br /></span>;
                                 });
                               }
-                              
+
                               return <span className="text-slate-500">No raw input data available.</span>;
                             })()}
                           </p>
@@ -736,7 +756,7 @@ export default function SOCDashboard() {
                 {report?.findings && report.findings.length > 0 ? report.findings.map((f, i) => (
                   <div key={i} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group">
                     <div className="flex gap-3">
-                      <span className={`size-2 rounded-full mt-1.5 group-hover:scale-125 transition-transform ${f.severity === 'high' || f.severity === 'critical' || f.severity === 'HIGH' || f.severity === 'CRITICAL' ? 'bg-red-500' : 'bg-orange-500'}`}></span>
+                      <span className={`size-2 rounded-full mt-1.5 group-hover:scale-125 transition-transform ${String(f.severity).toLowerCase() === 'high' || String(f.severity).toLowerCase() === 'critical' ? 'bg-red-500' : 'bg-orange-500'}`}></span>
                       <div className="flex-1">
                         <p className="text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-primary transition-colors">{f.finding_type || f.mitre_tactic || 'Security Finding'}</p>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{f.description}</p>

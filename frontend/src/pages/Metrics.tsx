@@ -193,6 +193,78 @@ export default function Metrics() {
           </div>
         </div>
 
+        {/* MITRE ATT&CK Donut Chart */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm mb-6 flex flex-col md:flex-row items-center md:items-start gap-8">
+          <div className="flex-1 w-full">
+            <h3 className="text-sm font-bold mb-8 flex items-center gap-2 text-slate-800 dark:text-slate-100 uppercase tracking-widest">
+              MITRE ATT&CK
+            </h3>
+            
+            {Object.keys(stats.mitre_tactics || {}).length === 0 ? (
+              <div className="text-sm text-slate-500 w-full py-8 font-medium italic text-center">No MITRE tactics recorded yet.</div>
+            ) : (
+              <div className="flex flex-col md:flex-row items-center gap-12 md:gap-24 pl-4 md:pl-12">
+                {/* Donut SVG */}
+                <div className="relative flex-shrink-0">
+                  <svg width="200" height="200" viewBox="0 0 100 100" className="-rotate-90">
+                    {/* Inner light solid circle */}
+                    <circle cx="50" cy="50" r="26" className="fill-blue-100 dark:fill-blue-900/40" />
+                    
+                    {/* Slices */}
+                    {(() => {
+                      const entries = Object.entries(stats.mitre_tactics || {}).sort((a: any, b: any) => b[1] - a[1]);
+                      const totalMitre = entries.reduce((acc: any, [_, v]: any) => acc + (v as number), 0);
+                      const mitreRadius = 40;
+                      const mitreCircumference = 2 * Math.PI * mitreRadius;
+                      let currentOffset = 0;
+                      const colors = ['#2563eb', '#3b82f6', '#facc15', '#60a5fa', '#84cc16', '#a855f7', '#6366f1', '#ec4899'];
+
+                      return entries.map(([tactic, count]: any, index) => {
+                        const pct = count / totalMitre;
+                        const dashLength = pct * mitreCircumference;
+                        const offset = currentOffset;
+                        currentOffset += dashLength;
+                        const color = colors[index % colors.length];
+
+                        return (
+                          <circle 
+                            key={tactic} 
+                            cx="50" cy="50" r={mitreRadius} 
+                            fill="none" 
+                            stroke={color} 
+                            strokeWidth="11"
+                            strokeDasharray={`${dashLength} ${mitreCircumference - dashLength}`}
+                            strokeDashoffset={-offset}
+                            className="transition-all duration-1000 ease-out drop-shadow-sm"
+                          />
+                        );
+                      });
+                    })()}
+                  </svg>
+                </div>
+                
+                {/* Legend */}
+                <div className="flex flex-col gap-3 justify-center">
+                  {Object.entries(stats.mitre_tactics || {}).sort((a: any, b: any) => b[1] - a[1]).map(([tactic, _count]: any, index) => {
+                    const colors = ['#2563eb', '#3b82f6', '#facc15', '#60a5fa', '#84cc16', '#a855f7', '#6366f1', '#ec4899'];
+                    const color = colors[index % colors.length];
+                    const displayLabel = tactic.includes(' - ') ? tactic.split(' - ')[1] : tactic;
+
+                    return (
+                      <div key={tactic} className="flex items-center gap-4">
+                        <span className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
+                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300 max-w-[200px] truncate" title={tactic}>
+                          {displayLabel}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Recent Investigations Table */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">

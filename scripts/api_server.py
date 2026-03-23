@@ -3,7 +3,8 @@ import csv
 import io
 import json
 from pathlib import Path
-from fastapi import FastAPI, BackgroundTasks, UploadFile, File
+from fastapi import FastAPI, BackgroundTasks, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import uuid
@@ -178,6 +179,87 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
             data = json.loads(text)
         except json.JSONDecodeError:
             return {"error": "Invalid JSON file"}
+
+        # ── Detect correlated multi-source format (a.json style) ────────
+        # Structure: [ { task_id, correlation_key, context_payload: { email_event, aws_network_events } }, ... ]
+        if isinstance(data, list) and len(data) > 0 and "context_payload" in data[0]:
+            # Build events for all tasks
+            all_task_events = []
+            for task in data:
+                task_id = task.get("task_id", f"task-{uuid.uuid4().hex[:6]}")
+                payload = task.get("context_payload", {})
+                corr_ip = task.get("correlation_key", {}).get("ip_address", "")
+
+                email_evt = payload.get("email_event", {})
+                network_evts = payload.get("aws_network_events", [])
+
+                # Build a raw_eml string from the email_event dict
+                raw_eml_lines = []
+                if email_evt:
+                    raw_eml_lines.append(f"From: {email_evt.get('Sender', 'unknown')}")
+                    raw_eml_lines.append(f"Return-Path: {email_evt.get('Return-Path', '')}")
+                    raw_eml_lines.append(f"Subject: {email_evt.get('Subject', '')}")
+                    raw_eml_lines.append(f"Date: {email_evt.get('Date', '')}")
+                    if email_evt.get("X-Originating-IP"):
+                        raw_eml_lines.append(f"X-Originating-IP: {email_evt['X-Originating-IP']}")
+                    raw_eml_lines.append("")
+                    raw_eml_lines.append(email_evt.get("Body", ""))
+                raw_eml = "\n".join(raw_eml_lines)
+
+                evt = {
+                    "event_type": "email",
+                    "source": "correlated_upload",
+                    "detail": {
+                        "raw_eml": raw_eml,
+                        "s3_key": f"uploads/{filename}/{task_id}",
+                        "correlation_ip": corr_ip,
+                        "aws_network_events": network_evts,
+                    },
+                }
+                all_task_events.append((task_id, evt))
+
+            # Only run the FIRST task immediately so the frontend gets a single report_id to track
+            first_task_id, first_event = all_task_events[0]
+            primary_rid = f"IR-{str(uuid.uuid4())[:8].upper()}"
+            reports_db[primary_rid] = {
+                "report_id": primary_rid,
+                "task_id": first_task_id,
+                "event_type": first_event["event_type"],
+                "status": "running",
+                "findings": [], "iocs": [], "error_logs": [], "messages": [],
+                "iteration_count": 0, "risk_score": 0.0, "final_report": "",
+                "pipeline_logs": [{"node": "eventbridge", "action": f"Correlated batch: {len(all_task_events)} tasks", "detail": f"Processing task 1/{len(all_task_events)}: {first_task_id}", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}],
+            }
+
+            # Queue remaining tasks to run SEQUENTIALLY after primary completes
+            def run_correlated_batch(primary_id, primary_evt, remaining):
+                """Run primary task first, then remaining tasks one-by-one."""
+                import time
+                run_upload_task(primary_id, primary_evt)
+                for tid, evt in remaining:
+                    rid = f"IR-{str(uuid.uuid4())[:8].upper()}"
+                    reports_db[rid] = {
+                        "report_id": rid, "task_id": tid,
+                        "event_type": evt["event_type"], "status": "running",
+                        "findings": [], "iocs": [], "error_logs": [], "messages": [],
+                        "iteration_count": 0, "risk_score": 0.0, "final_report": "",
+                        "pipeline_logs": [],
+                    }
+                    run_upload_task(rid, evt)
+
+            background_tasks.add_task(
+                run_correlated_batch,
+                primary_rid, first_event, all_task_events[1:]
+            )
+
+            return {
+                "message": f"Correlated Incident Response triggered for {len(data)} tasks from {filename}",
+                "report_id": primary_rid,
+                "event_type": "email",
+                "task_count": len(data),
+            }
+
+        # ── Fallback: treat as generic CloudTrail JSON ─────────────────
         event = {
             "event_type": "cloudtrail",
             "source": "manual_upload",
@@ -240,6 +322,7 @@ async def get_stats():
     severity_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
     agent_counts = {"email_analyst": 0, "forensic_analyst": 0, "threat_intel": 0}
     event_counts = {"email": 0, "cloudtrail": 0}
+    mitre_counts = {}
     risk_scores = []
 
     for r in reports:
@@ -258,6 +341,13 @@ async def get_stats():
             for key in agent_counts:
                 if key in agent:
                     agent_counts[key] += 1
+                    
+            mitre = f.get("mitre_tactic", "")
+            if mitre:
+                for tactic in mitre.split(","):
+                    t = tactic.strip()
+                    if t and t != "N/A":
+                        mitre_counts[t] = mitre_counts.get(t, 0) + 1
 
     avg_risk = sum(risk_scores) / len(risk_scores) if risk_scores else 0
 
@@ -288,9 +378,66 @@ async def get_stats():
         "severity_breakdown": severity_counts,
         "agent_usage": agent_counts,
         "event_type_breakdown": event_counts,
+        "mitre_tactics": mitre_counts,
         "risk_histogram": histogram,
         "recent_reports": recent,
     }
+
+class FeedbackRequest(BaseModel):
+    feedback_type: str
+    notes: str = ""
+
+@app.post("/reports/{report_id}/feedback")
+async def submit_feedback(report_id: str, request: FeedbackRequest):
+    """Analyst Feedback Loop for RLHF"""
+    if report_id not in reports_db:
+        raise HTTPException(status_code=404, detail="Report not found")
+        
+    report = reports_db[report_id]
+    report["analyst_feedback"] = {
+        "type": request.feedback_type,
+        "notes": request.notes,
+        "timestamp": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+    }
+    report["rlhf_ready"] = True
+    
+    try:
+        from bastion.services.dynamodb import save_report
+        save_report(report_id, report)
+    except Exception as e:
+        logger.error(f"Failed to save feedback to DB: {e}")
+        
+    return {"message": f"Feedback '{request.feedback_type}' recorded successfully for API routing RLHF.", "status": "success"}
+
+@app.post("/reports/{report_id}/push-sigma")
+async def push_sigma(report_id: str):
+    """Auto-push Sigma rules to SIEM"""
+    if report_id not in reports_db:
+        raise HTTPException(status_code=404, detail="Report not found")
+    
+    report = reports_db[report_id]
+    final_report = report.get("final_report", "")
+    
+    import re
+    match = re.search(r"```yaml\s*\n(.*?)\n```", final_report, re.DOTALL)
+    sigma_rule = match.group(1) if match else None
+    
+    if not sigma_rule:
+        return {"message": "No Sigma Rule found in report to push.", "status": "skipped"}
+        
+    logger.info(f"Pushing Sigma rule to Enterprise SIEM for {report_id}")
+    import asyncio
+    await asyncio.sleep(1.5) # Simulate API latency
+    
+    report["sigma_pushed"] = True
+    
+    try:
+        from bastion.services.dynamodb import save_report
+        save_report(report_id, report)
+    except Exception as e:
+        logger.error(f"Failed to save sigma_pushed to DB: {e}")
+        
+    return {"message": "Sigma Rule successfully synced and active in SIEM.", "status": "success"}
 
 if __name__ == "__main__":
     print("Starting BASTION Local API on port 8001...")

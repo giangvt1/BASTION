@@ -104,7 +104,7 @@ export default function Architecture() {
                     <p className="text-xs font-black text-primary mb-2 tracking-widest">ORCHESTRATOR</p>
                     <div className="flex justify-center gap-3 text-xs">
                       <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">LangGraph</span>
-                      <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">Gemini 2.5</span>
+                      <span className="px-2 py-1 rounded bg-primary/20 text-primary font-bold">Gemini 2.5 Flash</span>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -166,7 +166,7 @@ export default function Architecture() {
               <div className="flex gap-12">
                 <div className="flex flex-col">
                   <span className="text-slate-500 text-xs uppercase font-bold tracking-widest">Latency</span>
-                  <span className="text-2xl font-bold text-slate-100">&lt; 2.4s</span>
+                  <span className="text-2xl font-bold text-slate-100">&lt; 3.6s</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-slate-500 text-xs uppercase font-bold tracking-widest">Throughput</span>
@@ -174,7 +174,7 @@ export default function Architecture() {
                 </div>
                 <div className="flex flex-col">
                   <span className="text-slate-500 text-xs uppercase font-bold tracking-widest">Model</span>
-                  <span className="text-2xl font-black text-primary drop-shadow-[0_0_10px_rgba(236,91,19,0.5)]">Gemini 2.5</span>
+                  <span className="text-2xl font-black text-primary drop-shadow-[0_0_10px_rgba(236,91,19,0.5)]">Gemini 2.5 Flash</span>
                 </div>
               </div>
               <div className="flex items-center gap-4 bg-[#2a1d17] px-5 py-3 rounded-xl border border-[#3d2b22]">
