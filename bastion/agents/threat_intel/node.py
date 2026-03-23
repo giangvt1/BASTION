@@ -324,6 +324,12 @@ def _build_skip_response(tier1_result, timestamp: str) -> dict:
                 )
             )
         ],
+        "pipeline_logs": [{
+            "node": "threat_intel",
+            "action": "Analysis Skipped",
+            "detail": f"All {len(tier1_result.skipped_iocs)} IOCs are benign/whitelisted.",
+            "ts": timestamp
+        }],
     }
 
 
@@ -389,6 +395,12 @@ def _build_response(
         "findings": findings,
         "iocs": enriched_iocs,
         "messages": [AIMessage(content=summary)],
+        "pipeline_logs": [{
+            "node": "threat_intel",
+            "action": f"Verdict: {analysis.status}",
+            "detail": summary,
+            "ts": timestamp
+        }],
     }
 
 

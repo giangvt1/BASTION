@@ -5,6 +5,7 @@ Amazon DynamoDB service for storing analysis results and reports.
 from __future__ import annotations
 
 from typing import Any
+from decimal import Decimal
 
 from bastion.config import config
 from bastion.logger import get_logger
@@ -24,6 +25,17 @@ def _get_table():
     return _table
 
 
+def _float_to_decimal(obj: Any) -> Any:
+    """Recursively converts all floats in a dict or list to Decimals for DynamoDB compatibility."""
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    elif isinstance(obj, dict):
+        return {k: _float_to_decimal(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_float_to_decimal(v) for v in obj]
+    return obj
+
+
 def save_report(report_id: str, report_data: dict[str, Any]) -> None:
     """
     Save an analysis report to DynamoDB.
@@ -37,12 +49,11 @@ def save_report(report_id: str, report_data: dict[str, Any]) -> None:
 
     try:
         table = _get_table()
-        table.put_item(
-            Item={
-                "report_id": report_id,
-                **report_data,
-            }
-        )
+        item_data = _float_to_decimal({
+            "report_id": report_id,
+            **report_data,
+        })
+        table.put_item(Item=item_data)
         log.info("dynamodb.save_report.success", report_id=report_id)
     except Exception:
         log.exception("dynamodb.save_report.error", report_id=report_id)

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
 import { fetchLatestReport, fetchNodes, fetchTraces, triggerAnalysis, uploadFile } from '../services/api';
@@ -515,8 +517,8 @@ export default function SOCDashboard() {
                                       </span>
                                     )}
                                   </div>
-                                  <div className="text-[11px] text-slate-300 leading-relaxed font-mono whitespace-pre-wrap">
-                                    {details.final_report}
+                                  <div className="prose prose-invert prose-sm max-w-none text-slate-300 leading-relaxed font-sans">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{details.final_report}</ReactMarkdown>
                                   </div>
                                 </div>
                               )}
@@ -583,7 +585,9 @@ export default function SOCDashboard() {
                             </span>
                             <span className="text-[10px] text-primary/80 font-bold bg-primary/20 px-2 py-1 rounded tracking-wider uppercase">Final Verdict</span>
                           </div>
-                          <p className="text-sm font-medium leading-relaxed text-slate-800 dark:text-slate-200">{report.final_report}</p>
+                          <div className="prose prose-sm xl:prose-base prose-slate dark:prose-invert max-w-none leading-relaxed text-slate-800 dark:text-slate-200">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.final_report}</ReactMarkdown>
+                          </div>
 
                           {/* HiTL Actions */}
                           <div className="mt-4 pt-4 border-t border-primary/20 flex flex-wrap gap-2">

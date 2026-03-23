@@ -25,6 +25,7 @@ export interface Report {
   next_agent?: string;
   iteration_count: number;
   error_logs: string[];
+  pipeline_logs?: any[];
   event_payload?: any;
   timestamp?: string;
 }

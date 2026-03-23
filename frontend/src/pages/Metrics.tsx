@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Header } from '../components/Header';
 import { fetchStats } from '../services/api';
 
@@ -284,7 +286,9 @@ export default function Metrics() {
                   {reportDetail.final_report && (
                     <div className="bg-slate-50 dark:bg-slate-800/50 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
                       <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2 flex items-center gap-1"><span className="material-symbols-outlined text-sm text-primary">description</span> Executive Summary</h4>
-                      <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">{reportDetail.final_report}</pre>
+                      <div className="prose prose-sm prose-slate dark:prose-invert max-w-none leading-relaxed">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{reportDetail.final_report}</ReactMarkdown>
+                      </div>
                     </div>
                   )}
 

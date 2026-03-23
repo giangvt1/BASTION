@@ -117,6 +117,22 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
   return traces;
 };
 
+export const fetchAgentLogs = async (agentId: string | null): Promise<any[]> => {
+  if (!agentId) return [];
+  const report: any = await fetchLatestReport();
+  if (!report || !report.pipeline_logs) return [];
+  
+  const nodeLogMap: Record<string, string[]> = {
+    'supervisor': ['supervisor'],
+    'email': ['email_analyst'],
+    'forensic': ['forensic_analyst'],
+    'threat': ['threat_intel'],
+  };
+  
+  const matchNodes = nodeLogMap[agentId] || [agentId];
+  return report.pipeline_logs.filter((log: any) => matchNodes.includes(log.node));
+};
+
 export const triggerAnalysis = async (eventType: string): Promise<{message: string, report_id: string} | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';

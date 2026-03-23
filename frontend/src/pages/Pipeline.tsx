@@ -16,7 +16,18 @@ export default function Pipeline() {
     return () => clearInterval(interval);
   }, []);
 
+  const hasLog = (node: string, action?: string) => {
+    if (!report?.pipeline_logs) return false;
+    if (action) {
+      return report.pipeline_logs.some((l: any) => l.node === node && l.action.toLowerCase().includes(action.toLowerCase()));
+    }
+    return report.pipeline_logs.some((l: any) => l.node === node);
+  };
+
   const hasSigma = report?.findings?.some((f: any) => f.evidence?.has_sigma_rule);
+  const isTier1Active = !!report;
+  const hasAthena = hasLog('forensic_analyst');
+  const hasPinecone = hasLog('threat_intel');
 
   // Calculate dynamic metrics
   const reductionRatio = report ? Math.max(10, 45000 / (report.findings?.length || 1)).toLocaleString() + ':1' : '1,400:1';
@@ -63,40 +74,41 @@ export default function Pipeline() {
 
               <div className="flex flex-col gap-4">
                 {/* Step 1 */}
-                <div className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                  <span className="material-symbols-outlined text-primary">terminal</span>
+                <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all duration-500 ${isTier1Active ? 'bg-primary/5 border-primary/30 shadow-sm shadow-primary/10' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                  <span className={`material-symbols-outlined ${isTier1Active ? 'text-primary animate-pulse' : 'text-slate-400'}`}>terminal</span>
                   <div className="flex-1">
                     <p className="font-bold text-sm">Raw Logs Ingestion</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {report?.event_type ? `Processing ${report.event_type} event stream` : 'Awaiting data ingestion...'}
+                      {report?.event_type ? `Processing ${report.event_type} event payload` : 'Awaiting data stream payload...'}
                     </p>
                     <div className="mt-2 h-1.5 w-full bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                      <div className={`h-full bg-primary transition-all ${report ? 'w-full' : 'w-1/4 animate-pulse'}`}></div>
+                      <div className={`h-full transition-all duration-700 ${isTier1Active ? (report.status === 'completed' ? 'w-full bg-emerald-500' : 'w-1/2 bg-primary animate-pulse') : 'w-0 bg-primary'}`}></div>
                     </div>
                   </div>
                 </div>
 
                 {/* Step 2 */}
-                <div className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                  <span className="material-symbols-outlined text-primary">data_object</span>
+                <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all duration-500 delay-100 ${isTier1Active ? 'bg-primary/5 border-primary/30 shadow-sm shadow-primary/10' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                  <span className={`material-symbols-outlined ${isTier1Active ? 'text-primary' : 'text-slate-400'}`}>data_object</span>
                   <div className="flex-1">
                     <p className="font-bold text-sm">Regex & PII Scrubbing</p>
                     <p className="text-xs text-slate-500 mt-1">Anonymizing IPs, emails, and sensitive keys</p>
                     <div className="mt-2 flex gap-1">
-                      <span className="px-2 py-0.5 bg-primary/10 text-primary text-[10px] rounded font-bold">ACTIVE</span>
-                      <span className="px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-[10px] rounded">Redacting</span>
+                      <span className={`px-2 py-0.5 text-[10px] rounded font-bold transition-colors ${isTier1Active ? (report.status === 'completed' ? 'bg-emerald-100 text-emerald-600' : 'bg-primary/20 text-primary animate-pulse') : 'bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-400'}`}>
+                        {isTier1Active ? (report.status === 'completed' ? 'COMPLETED' : 'SCRUBBING') : 'IDLE'}
+                      </span>
                     </div>
                   </div>
                 </div>
 
                 {/* Step 3 */}
-                <div className="flex items-start gap-4 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-lg border border-slate-100 dark:border-slate-800">
-                  <span className="material-symbols-outlined text-primary">analytics</span>
+                <div className={`flex items-start gap-4 p-4 rounded-lg border transition-all duration-500 delay-200 ${isTier1Active ? 'bg-primary/5 border-primary/30 shadow-sm shadow-primary/10' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                  <span className={`material-symbols-outlined ${isTier1Active ? 'text-primary' : 'text-slate-400'}`}>analytics</span>
                   <div className="flex-1">
-                    <p className="font-bold text-sm">Isolation Forest Anomaly</p>
-                    <p className="text-xs text-slate-500 mt-1">Score-based filtering for high-entropy events</p>
-                    <div className="mt-2 text-xs font-mono text-slate-400 bg-slate-900 p-2 rounded">
-                      {report ? `{ "anomaly_score": 0.89, "decision": "ESCALATE" }` : `{ "status": "waiting" }`}
+                    <p className="font-bold text-sm">Edge Filtering (Tier 1)</p>
+                    <p className="text-xs text-slate-500 mt-1">Evaluating payload for escalation necessity</p>
+                    <div className="mt-2 text-xs font-mono text-slate-400 bg-slate-900 p-2 rounded flex">
+                      {isTier1Active ? <span className="text-emerald-400">{`{ "filter_bypass": true, "decision": "ESCALATE_TO_AI" }`}</span> : `{ "status": "waiting_payload" }`}
                     </div>
                   </div>
                 </div>
@@ -105,16 +117,16 @@ export default function Pipeline() {
               {/* Bridge to Tier 2 */}
               <div className="mt-auto flex flex-col items-center py-4 border-t border-dashed border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="material-symbols-outlined text-primary animate-pulse">forward</span>
-                  <span className="text-sm font-bold">Transfer to Buffer</span>
+                  <span className={`material-symbols-outlined ${report?.status === 'running' ? 'text-primary animate-pulse' : 'text-slate-400'}`}>forward</span>
+                  <span className={`text-sm font-bold ${isTier1Active ? 'text-slate-800 dark:text-slate-200' : 'text-slate-400'}`}>Transfer to AI Hub</span>
                 </div>
-                <div className="w-full p-3 bg-slate-900 rounded-lg flex items-center justify-between">
+                <div className={`w-full p-3 rounded-lg flex items-center justify-between transition-colors ${isTier1Active ? 'bg-slate-900 border border-primary/30 shadow-inner' : 'bg-slate-100 dark:bg-slate-800'}`}>
                   <div className="flex items-center gap-2">
                     <span className="material-symbols-outlined text-slate-400">queue</span>
-                    <span className="text-xs font-mono text-slate-100">AWS SQS :: analysis-queue</span>
+                    <span className={`text-xs font-mono ${isTier1Active ? 'text-emerald-400' : 'text-slate-500'}`}>AWS SQS :: analysis-queue</span>
                   </div>
-                  <span className="text-[10px] text-primary bg-primary/20 px-2 py-0.5 rounded font-bold">
-                    {report ? 'Processed' : 'Polling...'}
+                  <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${isTier1Active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}`}>
+                    {isTier1Active ? (report.status === 'completed' ? 'Consumed' : 'Enqueued') : 'Polling...'}
                   </span>
                 </div>
               </div>
@@ -155,19 +167,23 @@ export default function Pipeline() {
 
                 {/* Tool Usage */}
                 <div className="grid grid-cols-2 gap-4">
-                  <div className={`p-3 rounded-lg border transition-colors ${report?.event_type === 'cloudtrail' ? 'bg-primary/10 border-primary/40' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                  <div className={`p-3 rounded-lg border transition-all duration-500 ${hasAthena ? 'bg-primary/10 border-primary/50 shadow-lg shadow-primary/10' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="material-symbols-outlined text-xs text-primary">database</span>
-                      <p className="text-[11px] font-bold uppercase text-slate-800 dark:text-slate-200">Amazon Athena</p>
+                      <span className={`material-symbols-outlined text-xs ${hasAthena ? 'text-primary animate-pulse w-4' : 'text-slate-400'}`}>database</span>
+                      <p className={`text-[11px] font-bold uppercase ${hasAthena ? 'text-primary' : 'text-slate-800 dark:text-slate-200'}`}>Amazon Athena</p>
                     </div>
-                    <p className="text-[10px] text-slate-500">Executing SQL join across 90-day cold storage</p>
+                    <p className="text-[10px] text-slate-500">
+                      {hasAthena ? 'Successfully queried CloudTrail Data Lake via SQL.' : 'Idle. Awaiting forensic routing.'}
+                    </p>
                   </div>
-                  <div className={`p-3 rounded-lg border transition-colors ${report?.findings?.length ? 'bg-primary/10 border-primary/40' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
+                  <div className={`p-3 rounded-lg border transition-all duration-500 ${hasPinecone ? 'bg-primary/10 border-primary/50 shadow-lg shadow-primary/10' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="material-symbols-outlined text-xs text-primary">account_tree</span>
-                      <p className="text-[11px] font-bold uppercase text-slate-800 dark:text-slate-200">FAISS Vector DB</p>
+                      <span className={`material-symbols-outlined text-xs ${hasPinecone ? 'text-primary animate-pulse w-4' : 'text-slate-400'}`}>public</span>
+                      <p className={`text-[11px] font-bold uppercase ${hasPinecone ? 'text-primary' : 'text-slate-800 dark:text-slate-200'}`}>Pinecone DB / OSINT</p>
                     </div>
-                    <p className="text-[10px] text-slate-500">Similarity search for MITRE ATT&CK patterns</p>
+                    <p className="text-[10px] text-slate-500">
+                      {hasPinecone ? 'Enriching via semantic search & VT/AlienVault.' : 'Idle. Awaiting threat intelligence.'}
+                    </p>
                   </div>
                 </div>
 

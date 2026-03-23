@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { GraphNodeStatus } from '../types';
 import { fetchNodes } from '../services/api';
 
-export const Sidebar = () => {
+export const Sidebar = ({ selectedAgentId, onSelectAgent }: { selectedAgentId?: string | null, onSelectAgent?: (id: string | null) => void }) => {
   const [nodes, setNodes] = useState<GraphNodeStatus[]>([]);
 
   useEffect(() => {
@@ -25,17 +25,30 @@ export const Sidebar = () => {
         {nodes.map(node => (
           <div
             key={node.id}
-            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-colors cursor-pointer group ${node.type === 'supervisor'
+            onClick={() => onSelectAgent ? onSelectAgent(selectedAgentId === node.id ? null : node.id) : null}
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-300 cursor-pointer group ${
+              selectedAgentId === node.id
                 ? 'bg-primary text-white shadow-lg shadow-primary/20'
+                : node.status === 'running'
+                ? 'bg-primary/10 text-primary border border-primary/20 animate-pulse'
                 : 'hover:bg-slate-100 dark:hover:bg-primary/10'
-              }`}
+            }`}
           >
-            <span className={`material-symbols-outlined ${node.type === 'supervisor' ? '' : 'text-slate-400 group-hover:text-primary'}`}>
+            <span className={`material-symbols-outlined transition-colors ${selectedAgentId === node.id ? '' : node.status === 'running' ? 'text-primary' : 'text-slate-400 group-hover:text-primary'}`}>
               {node.icon}
             </span>
-            <span className={`text-sm ${node.type === 'supervisor' ? 'font-semibold' : 'font-medium'}`}>
-              {node.name}
-            </span>
+            <div className="flex flex-col flex-1">
+              <span className={`text-sm ${selectedAgentId === node.id ? 'font-bold' : 'font-medium'}`}>
+                {node.name}
+              </span>
+              {node.status === 'running' && <span className="text-[10px] opacity-80 leading-none mt-0.5">{node.message || 'Processing...'}</span>}
+            </div>
+            {node.status === 'running' && (
+              <span className="ml-auto flex h-2 w-2 relative">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+              </span>
+            )}
           </div>
         ))}
       </div>

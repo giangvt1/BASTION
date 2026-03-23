@@ -383,6 +383,12 @@ def _build_safe_response(tier1_result, timestamp: str) -> dict:
         "messages": [
             AIMessage(content="[Email Analyst] Tier 1 filter: CLEAN. No phishing indicators.")
         ],
+        "pipeline_logs": [{
+            "node": "email_analyst",
+            "action": "Analysis Complete",
+            "detail": "Tier 1 filter: CLEAN. No phishing indicators.",
+            "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()
+        }],
     }
 
 
@@ -452,6 +458,12 @@ def _build_response(
         "findings": findings,
         "iocs": iocs,
         "messages": [AIMessage(content=summary)],
+        "pipeline_logs": [{
+            "node": "email_analyst",
+            "action": f"Verdict: {analysis.status}",
+            "detail": summary,
+            "ts": timestamp
+        }],
     }
 
 

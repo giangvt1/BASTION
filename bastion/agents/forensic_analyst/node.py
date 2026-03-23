@@ -411,6 +411,12 @@ def _build_clean_response(tier1_result, timestamp: str) -> dict:
         "messages": [
             AIMessage(content="[Forensic Analyst] Tier 1 filter: NORMAL. No anomalies detected.")
         ],
+        "pipeline_logs": [{
+            "node": "forensic_analyst",
+            "action": "Analysis Complete",
+            "detail": "Tier 1 filter: NORMAL. No anomalies detected.",
+            "ts": timestamp
+        }],
     }
 
 
@@ -476,6 +482,12 @@ def _build_response(
         "findings": findings,
         "iocs": iocs,
         "messages": [AIMessage(content=summary)],
+        "pipeline_logs": [{
+            "node": "forensic_analyst",
+            "action": f"Verdict: {analysis.status}",
+            "detail": summary,
+            "ts": timestamp
+        }],
     }
 
 

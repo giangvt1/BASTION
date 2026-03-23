@@ -71,6 +71,15 @@ def run_agent_task(report_id: str, event_type: str):
             reports_db[report_id] = safe_state
             
         reports_db[report_id]["status"] = "completed"
+        
+        # Save final completed report to DynamoDB
+        try:
+            from bastion.services.dynamodb import save_report
+            save_report(report_id, reports_db[report_id])
+            logger.info("Saved final report to DynamoDB", report_id=report_id)
+        except Exception as err:
+            logger.error("Failed to save report to DynamoDB", report_id=report_id, error=str(err))
+
         logger.info(f"Finished graph for report {report_id}")
     except Exception as e:
         logger.exception("Graph execution failed")
@@ -136,6 +145,15 @@ def run_upload_task(report_id: str, event: dict):
             safe_state["report_id"] = report_id
             reports_db[report_id] = safe_state
         reports_db[report_id]["status"] = "completed"
+
+        # Save final completed report to DynamoDB
+        try:
+            from bastion.services.dynamodb import save_report
+            save_report(report_id, reports_db[report_id])
+            logger.info("Saved final uploaded report to DynamoDB", report_id=report_id)
+        except Exception as err:
+            logger.error("Failed to save uploaded report to DynamoDB", report_id=report_id, error=str(err))
+
         logger.info(f"Finished graph for uploaded report {report_id}")
     except Exception as e:
         logger.exception("Upload graph execution failed")
