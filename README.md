@@ -267,12 +267,30 @@ cd frontend && npm run dev
 - **Rate Limiting:** VT free tier is 4 req/min. Mitigated by graceful fallback to heuristic analysis. AbuseIPDB allows 1000 req/day.
 - **Production Architecture:** Local API Emulator for demo stability; `lambda_handlers` are ready for AWS deployment.
 
+## AI/ML Notebooks
+
+All custom ML/DL model training and evaluation is documented in a single notebook:
+
+```
+notebooks/
+├── README.md
+└── bastion_ml_models.ipynb    # Training & evaluation for all 3 models
+```
+
+| Model | Architecture | Task |
+|-------|-------------|------|
+| Phishing Classifier | Fine-tuned DistilBERT | Email phishing detection (Tier 1) |
+| LSTM Anomaly Detector | LSTM Autoencoder | CloudTrail user behavior anomaly detection |
+| Semantic Embedder | Sentence-BERT (all-MiniLM-L6-v2) | Vector search for RAG (Pinecone) |
+
+> This project uses a hybrid architecture: **foundation models** (Gemini) handle reasoning and report generation via multi-agent orchestration, while **custom ML models** handle specialized classification tasks requiring deterministic, low-latency inference. The notebook above documents all custom-trained model components.
+
 ---
 
 ## Team
 
-- Giang — Team Member
-- Sang — Team Member
-- Hai — Team Member
-- Viet — Team Member
-- Tung — Team Member
+- Vu Truong Giang — Team Leader
+- Nguyen Ngoc Sang — Team Member
+- Le Ngoc Hai — Team Member
+- Bui Hoang Viet — Team Member
+- Dinh Thanh Tung — Team Member
