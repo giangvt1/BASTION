@@ -46,7 +46,8 @@ and synthesize them into a highly professional, structured Executive Markdown Re
 
 4. **Threat Intel transparency**:
    - If enrichment_source is "api": show real API results (e.g., "VT: 5/94 Malicious")
-   - If enrichment_source is "heuristic": write "Heuristic Analysis Only (no API key)"
+   - If enrichment_source is "heuristic": write "Heuristic Analysis Only"
+   - If enrichment_source is "skip" or IOC is a private IP: write "Skipped (Internal IP)"
    - If enrichment was NOT performed: write "Not Enriched"
    - NEVER fabricate reputation numbers from heuristic data.
    - IOC Context: use "contextually suspicious" not "MALICIOUS" unless real API data confirms maliciousness.

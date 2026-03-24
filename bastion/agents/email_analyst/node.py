@@ -243,10 +243,26 @@ def _run_react_agent(
 
     log.info("email_analyst.react_start", content_length=len(content))
 
-    result = react_agent.invoke(
-        {"messages": [HumanMessage(content=task_message)]},
-        config={"recursion_limit": MAX_REACT_STEPS},
-    )
+    # Run with timeout to prevent indefinite hang (e.g. Pinecone populating)
+    import concurrent.futures
+    REACT_TIMEOUT_SECONDS = 120
+
+    def _invoke():
+        return react_agent.invoke(
+            {"messages": [HumanMessage(content=task_message)]},
+            config={"recursion_limit": MAX_REACT_STEPS},
+        )
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_invoke)
+            result = future.result(timeout=REACT_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        log.error("email_analyst.react_timeout", timeout=REACT_TIMEOUT_SECONDS)
+        return _build_fallback_analysis(tier1_result)
+    except Exception:
+        log.exception("email_analyst.react_invoke_error")
+        return _build_fallback_analysis(tier1_result)
 
     # Parse the final message from the agent
     messages = result.get("messages", [])

@@ -204,9 +204,14 @@ def vector_similarity_search(query_text: str) -> list[dict]:
     log.info("tool.pinecone_search", query_length=len(query_text))
 
     from bastion.vector_store.corpus_loader import search_phishing_corpus
+    import concurrent.futures
+
+    SEARCH_TIMEOUT = 30  # seconds
 
     try:
-        results = search_phishing_corpus(query_text, k=5)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(search_phishing_corpus, query_text, 5)
+            results = future.result(timeout=SEARCH_TIMEOUT)
 
         phishing_matches = sum(1 for r in results if r.get("label") == "phishing")
         log.info(
@@ -216,6 +221,9 @@ def vector_similarity_search(query_text: str) -> list[dict]:
         )
         return results
 
+    except concurrent.futures.TimeoutError:
+        log.error("tool.pinecone_timeout", timeout=SEARCH_TIMEOUT)
+        return [{"error": f"Pinecone search timed out after {SEARCH_TIMEOUT}s", "label": "unknown"}]
     except Exception as exc:
         log.exception("tool.pinecone_search_error")
         return [{"error": str(exc)}]

@@ -281,9 +281,9 @@ def _check_threat_intel_consistency(
 
                 # Build clean replacement
                 if useful_context:
-                    clean_rep = f"Heuristic Only (no API key); {'; '.join(useful_context)}"
+                    clean_rep = f"Heuristic Only; {'; '.join(useful_context)}"
                 else:
-                    clean_rep = "Heuristic Only (no API key)"
+                    clean_rep = "Heuristic Only"
 
                 violations.append(Violation(
                     category="threat_intel_consistency",
@@ -399,6 +399,8 @@ def _check_sigma_consistency(
     for ds in datasources:
         if ds in _SIGMA_ALLOWED_FIELDS:
             allowed = _SIGMA_ALLOWED_FIELDS[ds]
+            # Collect known wrong names (already handled by field fix above)
+            known_wrong_names = set(_SIGMA_FIELD_FIXES.get(ds, {}).keys())
             # Extract field names from detection section (key: value patterns in YAML)
             detection_block = _extract_section(sigma_section, "detection", "level") or sigma_section
             for match in re.finditer(r"^\s{2,}(\w+):", detection_block, re.MULTILINE):
@@ -408,6 +410,9 @@ def _check_sigma_consistency(
                                   "logsource", "product", "service", "title",
                                   "status", "description", "author", "date",
                                   "level", "tags", "falsepositives", "id", "fields"):
+                    continue
+                # Skip fields already handled by field name fixes
+                if field_name in known_wrong_names:
                     continue
                 if field_name not in allowed:
                     violations.append(Violation(

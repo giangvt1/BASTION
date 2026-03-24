@@ -110,11 +110,18 @@ def mitre_attack_vector_tool(behavior_description: str) -> list[dict[str, Any]]:
 
     try:
         from bastion.vector_store.corpus_loader import search_mitre_corpus
+        import concurrent.futures
 
-        results = search_mitre_corpus(behavior_description, k=5)
+        SEARCH_TIMEOUT = 30  # seconds
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(search_mitre_corpus, behavior_description, 5)
+            results = future.result(timeout=SEARCH_TIMEOUT)
         log.info("tool.mitre_results", count=len(results))
         return results
 
+    except concurrent.futures.TimeoutError:
+        log.error("tool.mitre_timeout", timeout=30)
+        return [{"error": "MITRE search timed out", "tactic_id": "", "technique": ""}]
     except Exception as exc:
         log.exception("tool.mitre_search_error")
         return [{"error": str(exc)}]

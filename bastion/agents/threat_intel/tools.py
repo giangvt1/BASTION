@@ -78,6 +78,18 @@ def virustotal_lookup(ioc_value: str, ioc_type: str = "auto") -> dict[str, Any]:
     log = logger.bind(tool="virustotal_lookup")
     log.info("tool.vt_lookup", ioc_value=ioc_value[:100], ioc_type=ioc_type)
 
+    # Pre-filter: skip private/internal IPs — no point sending to external APIs
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", ioc_value) and _RFC1918_RE.match(ioc_value):
+        log.info("tool.vt_skip_private_ip", ioc=ioc_value)
+        return {
+            "source": "VirusTotal",
+            "ioc_value": ioc_value,
+            "risk_level": "BENIGN",
+            "flags": ["internal_ip"],
+            "note": "Skipped — RFC 1918 private IP, not externally routable.",
+            "enrichment_source": "skip",
+        }
+
     # Try real VirusTotal API
     try:
         from bastion.config import config
@@ -115,6 +127,23 @@ def _vt_api_call(
         url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
 
     resp = requests.get(url, headers=headers, timeout=30)
+
+    # Handle 400/404: IOC invalid or not found in VT database
+    if resp.status_code in (400, 404):
+        reason = "Invalid IOC (e.g. reserved TLD)" if resp.status_code == 400 else "Not found in database"
+        log.info("tool.vt_not_found", ioc=ioc_value[:100], status=resp.status_code, reason=reason)
+        return {
+            "source": "VirusTotal",
+            "ioc_value": ioc_value,
+            "malicious_count": 0,
+            "total_engines": 0,
+            "detection_ratio": "0/0",
+            "community_score": 0,
+            "tags": [],
+            "risk_level": "UNKNOWN",
+            "note": f"VirusTotal: {reason} (HTTP {resp.status_code})",
+        }
+
     resp.raise_for_status()
     data = resp.json().get("data", {}).get("attributes", {})
 
@@ -209,7 +238,7 @@ def _vt_heuristic(ioc_value: str, ioc_type: str) -> dict[str, Any]:
         "risk_level": risk,
         "risk_score": risk_score,
         "flags": flags,
-        "note": "Heuristic analysis -- VirusTotal API key not configured.",
+        "note": "Heuristic analysis — API call failed or returned an error.",
     }
 
 
