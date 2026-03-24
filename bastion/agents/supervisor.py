@@ -34,7 +34,7 @@ Your role:
 
 Available agents:
 - DELEGATE_EMAIL: Email Analyst -- analyzes .eml files for phishing/social engineering
-- DELEGATE_FORENSIC: Forensic Analyst -- queries CloudTrail logs, searches VectorDB for attack patterns
+- DELEGATE_FORENSIC: Forensic Analyst -- queries CloudTrail logs, analyzes VPC Flow Logs, searches VectorDB for attack patterns
 - DELEGATE_THREAT: Threat Intel -- scans IOC reputation, checks domain age, assesses risk levels
 
 Rules:
@@ -42,17 +42,24 @@ Rules:
 - If sufficient evidence has been gathered, respond with SYNTHESIZE.
 - Always respond with exactly one of: DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE.
 - Consider correlating findings across multiple agents for multi-vector attacks.
+- IMPORTANT: For correlated events that contain BOTH email AND network/VPC Flow Log data,
+  you MUST delegate to BOTH Email Analyst AND Forensic Analyst (one at a time) before synthesizing.
+  After Email Analyst completes, delegate to Forensic Analyst to analyze the network events.
 """
 
 
 def supervisor_node(state: BastionState) -> dict:
     """Supervisor node for LangGraph.
 
-    Reads current state, invokes Gemini LLM for routing decision,
-    and returns the next_agent field.
+    Uses deterministic hard-rule routing to guarantee all relevant agents
+    are called exactly once in order: Email → Forensic → Threat → Synthesize.
+    LLM is only used as fallback for non-standard flows.
     """
+    from datetime import datetime, timezone
+
     log = logger.bind(agent="supervisor", event_type=state.get("event_type"))
     iteration = state.get("iteration_count", 0)
+    ts = datetime.now(timezone.utc).isoformat()
 
     log.info(
         "supervisor.evaluating",
@@ -61,94 +68,109 @@ def supervisor_node(state: BastionState) -> dict:
         iocs_count=len(state.get("iocs", [])),
     )
 
-    # ── Hard-Rules for Initial Routing (Fix for False Negatives) ──
-    if iteration == 0:
-        event_type = state.get("event_type", "unknown")
-        decision = None
-        if event_type == "email":
-            decision = "DELEGATE_EMAIL"
-        elif event_type in ("cloudtrail", "syslog"):
-            decision = "DELEGATE_FORENSIC"
-            
-        if decision:
-            log.info("supervisor.hard_rule_routing", decision=decision)
-            from datetime import datetime, timezone
-            ts = datetime.now(timezone.utc).isoformat()
-            return {
-                "next_agent": decision,
-                "iteration_count": iteration + 1,
-                "messages": [AIMessage(content=f"[Supervisor] Hard-Rule Routing -> {decision}")],
-                "pipeline_logs": [
-                    {"node": "supervisor", "action": "Applying Hard-Rule", "detail": f"Event type '{event_type}' detected. Bypassing LLM for guaranteed initial delegation.", "ts": ts},
-                    {"node": "supervisor", "action": f"Routing → {decision}", "detail": f"Delegating to {decision.replace('DELEGATE_', '').lower()} agent", "ts": ts},
-                ],
-            }
-
     if iteration >= MAX_ITERATIONS:
         log.warning("supervisor.max_iterations_reached", max=MAX_ITERATIONS)
         return {
             "next_agent": "SYNTHESIZE",
             "iteration_count": iteration + 1,
-            "pipeline_logs": [{"node": "supervisor", "action": "Max iterations reached", "detail": f"Forced SYNTHESIZE after {MAX_ITERATIONS} iterations", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}],
+            "pipeline_logs": [{"node": "supervisor", "action": "Max iterations reached", "detail": f"Forced SYNTHESIZE after {MAX_ITERATIONS} iterations", "ts": ts}],
         }
 
-    # Build context message for LLM
-    context_parts = [
-        f"Event Type: {state.get('event_type', 'unknown')}",
-        f"Iteration: {iteration}",
-        f"Current Findings ({len(state.get('findings', []))}):",
-    ]
-    for f in state.get("findings", []):
-        context_parts.append(
-            f"  - [{f.get('severity')}] {f.get('agent')}: {f.get('description', '')}"
-        )
+    # ── Track which agents have already produced findings ──
+    findings = state.get("findings", [])
+    agents_with_findings = {f.get("agent", "") for f in findings}
+    
+    email_done = "email_analyst" in agents_with_findings
+    forensic_done = "forensic_analyst" in agents_with_findings
+    threat_done = "threat_intel" in agents_with_findings
+    
+    # Also check messages for agents that returned CLEAN/SKIP/NORMAL (no findings)
+    messages = state.get("messages", [])
+    for msg in messages:
+        content = getattr(msg, "content", "") if hasattr(msg, "content") else str(msg)
+        if "[Email Analyst]" in content:
+            email_done = True
+        if "[Forensic Analyst]" in content:
+            forensic_done = True
+        if "[Threat Intel]" in content:
+            threat_done = True
 
-    context_parts.append(f"\nIOCs ({len(state.get('iocs', []))}):")
-    for ioc in state.get("iocs", []):
-        context_parts.append(
-            f"  - [{ioc.get('ioc_type')}] {ioc.get('value')} (from {ioc.get('source_agent')})"
-        )
+    # Check for correlated network events
+    event_payload = state.get("event_payload", {})
+    detail = event_payload.get("detail", {})
+    has_network_events = bool(detail.get("aws_network_events", [])) if isinstance(detail, dict) else False
 
-    error_logs = state.get("error_logs", [])
-    if error_logs:
-        context_parts.append(f"\nAgent Errors ({len(error_logs)}):")
-        for err in error_logs[-5:]:
-            context_parts.append(f"  - {err}")
-        context_parts.append(
-            "NOTE: Do NOT re-delegate to an agent that has already failed. "
-            "If all relevant agents have errored, respond with SYNTHESIZE."
-        )
-
-    user_message = "\n".join(context_parts)
-    user_message += (
-        "\n\nDecide the next action. Respond with exactly one of: "
-        "DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE.\n"
-        "IMPORTANT: Do NOT delegate to an agent you have already delegated to in previous iterations unless new evidence specifically requires it. If you have already called DELEGATE_THREAT and it found 0 findings, do NOT call it again, just SYNTHESIZE."
+    log.info(
+        "supervisor.agent_status",
+        email_done=email_done,
+        forensic_done=forensic_done,
+        threat_done=threat_done,
+        has_network_events=has_network_events,
     )
 
-    try:
-        from bastion.services.gemini import call_gemini
-
-        llm_response = call_gemini(
-            prompt=user_message,
-            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
-        )
-        decision = _parse_routing_decision(llm_response)
-        log.info("supervisor.decision", decision=decision)
-
-    except Exception:
-        log.exception("supervisor.llm_error")
+    # ── Deterministic Pipeline Routing ──
+    # Step 1: Email first (for email events)
+    if not email_done and state.get("event_type") == "email":
+        decision = "DELEGATE_EMAIL"
+        reason = "Email event detected — delegating to Email Analyst first"
+    
+    # Step 2: Forensic next (if network events exist OR event is cloudtrail)
+    elif not forensic_done and (has_network_events or state.get("event_type") in ("cloudtrail", "syslog")):
+        decision = "DELEGATE_FORENSIC"
+        reason = "Network events/logs detected — delegating to Forensic Analyst"
+    
+    # Step 3: Threat Intel (if there are IOCs to analyze)
+    elif not threat_done and len(state.get("iocs", [])) > 0:
+        decision = "DELEGATE_THREAT"
+        reason = f"IOCs available ({len(state.get('iocs', []))}) — delegating to Threat Intel"
+    
+    # Step 4: All agents done → Synthesize
+    elif email_done or forensic_done or threat_done:
         decision = "SYNTHESIZE"
+        reason = f"All required agents completed (E:{email_done} F:{forensic_done} T:{threat_done}) — generating final report"
+    
+    # Fallback: use LLM for edge cases
+    else:
+        decision = _llm_routing_fallback(state, log, ts)
+        reason = "Non-standard flow — using LLM routing"
+
+    log.info("supervisor.decision", decision=decision, reason=reason)
 
     return {
         "next_agent": decision,
         "iteration_count": iteration + 1,
         "messages": [AIMessage(content=f"[Supervisor] Routing -> {decision}")],
         "pipeline_logs": [
-            {"node": "supervisor", "action": "Evaluating state", "detail": f"Iteration {iteration}: {len(state.get('findings', []))} findings, {len(state.get('iocs', []))} IOCs gathered", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
-            {"node": "supervisor", "action": f"Routing → {decision}", "detail": f"Delegating to {'synthesis engine' if decision == 'SYNTHESIZE' else decision.replace('DELEGATE_', '').lower() + ' agent'} for {'final report generation' if decision == 'SYNTHESIZE' else 'specialized analysis'}", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()},
+            {"node": "supervisor", "action": "Evaluating state", "detail": f"Iteration {iteration}: E:{email_done} F:{forensic_done} T:{threat_done} | {len(findings)} findings, {len(state.get('iocs', []))} IOCs", "ts": ts},
+            {"node": "supervisor", "action": f"Routing → {decision}", "detail": reason, "ts": ts},
         ],
     }
+
+
+def _llm_routing_fallback(state: BastionState, log, ts: str) -> str:
+    """LLM-based routing fallback for non-standard flows."""
+    context_parts = [
+        f"Event Type: {state.get('event_type', 'unknown')}",
+        f"Iteration: {state.get('iteration_count', 0)}",
+        f"Findings: {len(state.get('findings', []))}",
+        f"IOCs: {len(state.get('iocs', []))}",
+    ]
+    user_message = "\n".join(context_parts)
+    user_message += (
+        "\n\nDecide the next action. Respond with exactly one of: "
+        "DELEGATE_EMAIL, DELEGATE_FORENSIC, DELEGATE_THREAT, SYNTHESIZE."
+    )
+
+    try:
+        from bastion.services.gemini import call_gemini
+        llm_response = call_gemini(
+            prompt=user_message,
+            system_prompt=SUPERVISOR_SYSTEM_PROMPT,
+        )
+        return _parse_routing_decision(llm_response)
+    except Exception:
+        log.exception("supervisor.llm_error")
+        return "SYNTHESIZE"
 
 
 def _parse_routing_decision(llm_response: str) -> str:

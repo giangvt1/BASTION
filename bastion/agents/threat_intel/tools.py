@@ -83,12 +83,15 @@ def virustotal_lookup(ioc_value: str, ioc_type: str = "auto") -> dict[str, Any]:
         from bastion.config import config
         api_key = getattr(config, "virustotal_api_key", "") or ""
         if api_key:
+            log.info("tool.vt_api_attempt", has_key=True, key_prefix=api_key[:8])
             return _vt_api_call(ioc_value, ioc_type, api_key, log)
-    except Exception:
-        pass
+        else:
+            log.info("tool.vt_no_key", reason="virustotal_api_key is empty in config")
+    except Exception as e:
+        log.error("tool.vt_api_error", error=str(e)[:300], error_type=type(e).__name__)
 
     # Fallback: heuristic-based reputation
-    log.info("tool.vt_fallback_heuristic", reason="no_api_key")
+    log.info("tool.vt_fallback_heuristic", reason="api_call_failed_or_no_key")
     return _vt_heuristic(ioc_value, ioc_type)
 
 
@@ -107,7 +110,8 @@ def _vt_api_call(
     elif ioc_type in ("hash", "auto") and re.match(r"^[a-fA-F0-9]{32,64}$", ioc_value):
         url = f"https://www.virustotal.com/api/v3/files/{ioc_value}"
     else:
-        url_id = hashlib.sha256(ioc_value.encode()).hexdigest()
+        import base64
+        url_id = base64.urlsafe_b64encode(ioc_value.encode()).decode().rstrip("=")
         url = f"https://www.virustotal.com/api/v3/urls/{url_id}"
 
     resp = requests.get(url, headers=headers, timeout=30)
@@ -243,12 +247,15 @@ def abuseipdb_check(ip_address: str) -> dict[str, Any]:
         from bastion.config import config
         api_key = getattr(config, "abuseipdb_api_key", "") or ""
         if api_key:
+            log.info("tool.abuseipdb_api_attempt", has_key=True, key_prefix=api_key[:8])
             return _abuseipdb_api_call(ip_address, api_key, log)
-    except Exception:
-        pass
+        else:
+            log.info("tool.abuseipdb_no_key", reason="abuseipdb_api_key is empty in config")
+    except Exception as e:
+        log.error("tool.abuseipdb_api_error", error=str(e)[:300], error_type=type(e).__name__)
 
     # Fallback: heuristic
-    log.info("tool.abuseipdb_fallback", reason="no_api_key")
+    log.info("tool.abuseipdb_fallback", reason="api_call_failed_or_no_key")
     return _abuseipdb_heuristic(ip_address)
 
 

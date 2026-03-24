@@ -103,8 +103,8 @@ export const RightPanel = ({ selectedAgentId, onClearSelection }: { selectedAgen
                 <p className="text-lg font-bold text-slate-800 dark:text-slate-200">{traces.length}</p>
               </div>
               <div className="p-3 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
-                <p className="text-[10px] text-slate-500">Est. Cost</p>
-                <p className="text-lg font-bold text-slate-800 dark:text-slate-200">${(traces.length * 0.002).toFixed(3)}</p>
+                <p className="text-[10px] text-slate-500">Est. LLM Cost</p>
+                <p className="text-lg font-bold text-slate-800 dark:text-slate-200">${(traces.filter(t => t.type === 'delegation' || t.type === 'synthesis').length * 0.001).toFixed(3)}</p>
               </div>
             </div>
           </div>

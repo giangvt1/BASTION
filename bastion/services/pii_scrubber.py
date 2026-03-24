@@ -89,10 +89,16 @@ _PATTERNS: list[tuple[str, re.Pattern, str]] = [
 ]
 
 # Fields that should never be scrubbed (structural/routing keys)
+# Also includes fields that contain IOC data (emails in headers are IOCs, not PII)
 _SKIP_KEYS = frozenset({
     "event_type", "source", "detail-type", "version", "region",
     "eventName", "eventSource", "eventCategory", "eventType",
     "readOnly", "managementEvent",
+    # IOC fields — email addresses here are indicators, not PII
+    "Sender", "Return-Path", "From", "To", "Reply-To", "X-Sender",
+    "sender", "return-path", "from", "to", "reply-to",
+    # Email body/headers — contains IOC sender addresses
+    "raw_eml", "raw_email", "email_body", "subject", "body",
 })
 
 

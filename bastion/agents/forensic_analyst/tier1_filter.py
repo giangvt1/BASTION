@@ -134,6 +134,36 @@ def run_anomaly_filter(context_logs: dict, user: str = "") -> Tier1AnomalyResult
                 "reason": "Access denied (possible probing)",
             })
 
+        # ── VPC Flow Log specific rules ──────────────────────────────────
+        event_source = str(rec.get("eventSource", "") or "")
+        vpc_flow = rec.get("_vpc_flow_log", {})
+
+        if event_source == "vpc-flow-logs.amazonaws.com" or vpc_flow:
+            action = vpc_flow.get("action", "") if vpc_flow else ""
+            attack_label = vpc_flow.get("mapped_attack_label", "") if vpc_flow else ""
+
+            # REJECT events from external IPs are suspicious, never NORMAL
+            if action == "REJECT" or "REJECT" in event_name:
+                rule_matches.append(f"vpc_flow_reject:{src_ip}")
+                flagged_events.append({
+                    "eventName": event_name,
+                    "eventTime": event_time,
+                    "sourceIP": src_ip,
+                    "eventSource": event_source,
+                    "reason": f"Rejected network connection from {src_ip}",
+                })
+
+            # Heuristic attack labels add additional suspicion
+            if attack_label and attack_label != "unknown_network_event":
+                rule_matches.append(f"vpc_flow_suspicious_label:{attack_label}")
+                flagged_events.append({
+                    "eventName": event_name,
+                    "eventTime": event_time,
+                    "sourceIP": src_ip,
+                    "eventSource": event_source,
+                    "reason": f"Heuristic label: {attack_label} (not confirmed, upstream tag)",
+                })
+
         recon_count = sum(
             1 for r in records if r.get("eventName") in _RECON_EVENTS
         )

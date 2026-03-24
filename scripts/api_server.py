@@ -182,6 +182,9 @@ async def upload_file(background_tasks: BackgroundTasks, file: UploadFile = File
 
         # ── Detect correlated multi-source format (a.json style) ────────
         # Structure: [ { task_id, correlation_key, context_payload: { email_event, aws_network_events } }, ... ]
+        # Also support single-object format: { task_id, context_payload: { ... } }
+        if isinstance(data, dict) and "context_payload" in data:
+            data = [data]  # Normalize single task to list
         if isinstance(data, list) and len(data) > 0 and "context_payload" in data[0]:
             # Build events for all tasks
             all_task_events = []

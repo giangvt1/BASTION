@@ -117,7 +117,7 @@ export const GraphView = () => {
               <span className={`material-symbols-outlined ${getNodeStatus('email') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>mail</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Email Analyst</span>
             </div>
-            <p className="text-[11px] text-slate-500">{getNodeStatus('email') === 'running' ? 'Processing headers and attachments...' : getNodeStatus('email') === 'completed' ? 'Analysis finished.' : 'Awaiting task...'}</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('email') === 'running' ? 'Analyzing email headers & phishing signals...' : getNodeStatus('email') === 'completed' ? 'Email analysis complete.' : 'Awaiting email event...'}</p>
             <div className="mt-3 flex gap-1">
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('email') === 'completed' ? 'bg-green-500' : getNodeStatus('email') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('email') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
@@ -135,7 +135,7 @@ export const GraphView = () => {
               <span className={`material-symbols-outlined ${getNodeStatus('forensic') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>biotech</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Forensic Analyst</span>
             </div>
-            <p className="text-[11px] text-slate-500">{getNodeStatus('forensic') === 'running' ? 'Analyzing binary signatures...' : getNodeStatus('forensic') === 'completed' ? 'Investigation complete.' : 'Awaiting logs...'}</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('forensic') === 'running' ? 'Analyzing CloudTrail & VPC Flow Logs...' : getNodeStatus('forensic') === 'completed' ? 'Log investigation complete.' : 'Awaiting logs...'}</p>
             <div className="mt-3 flex gap-1">
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('forensic') === 'completed' ? 'bg-green-500' : getNodeStatus('forensic') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('forensic') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
@@ -148,7 +148,7 @@ export const GraphView = () => {
               <span className={`material-symbols-outlined ${getNodeStatus('threat') === 'running' ? 'text-primary animate-pulse' : 'text-slate-400 group-hover:text-primary'}`}>public</span>
               <span className="font-bold text-sm text-slate-800 dark:text-slate-100">Threat Intel</span>
             </div>
-            <p className="text-[11px] text-slate-500">{getNodeStatus('threat') === 'running' ? 'Checking MISP/Taxii feeds...' : getNodeStatus('threat') === 'completed' ? 'IOCs verified.' : 'Idle...'}</p>
+            <p className="text-[11px] text-slate-500">{getNodeStatus('threat') === 'running' ? 'Querying VirusTotal & AbuseIPDB...' : getNodeStatus('threat') === 'completed' ? 'IOC reputation verified.' : 'Idle...'}</p>
             <div className="mt-3 flex gap-1">
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('threat') === 'completed' ? 'bg-green-500' : getNodeStatus('threat') === 'running' ? 'bg-primary animate-pulse' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
               <div className={`h-1 flex-1 rounded-full ${getNodeStatus('threat') === 'completed' ? 'bg-green-500' : 'bg-slate-200 dark:bg-slate-700'}`}></div>
@@ -157,7 +157,7 @@ export const GraphView = () => {
         </div>
 
         {/* Shared State Hub */}
-        <div className="absolute bottom-[12%] sm:bottom-[15%] left-1/2 -translate-x-1/2 w-80 z-20 hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
+        <div onClick={() => setSelectedNode('Shared State')} className="absolute bottom-[12%] sm:bottom-[15%] left-1/2 -translate-x-1/2 w-80 z-20 hover:scale-[1.02] transition-transform duration-300 cursor-pointer">
           <div className="bg-slate-900 border border-primary/40 rounded-2xl p-4 shadow-2xl">
             <div className="flex items-center gap-3 mb-4 border-b border-white/10 pb-2">
               <span className="material-symbols-outlined text-primary">database</span>
@@ -204,6 +204,69 @@ export const GraphView = () => {
             <div className="flex-1 overflow-y-auto p-4 space-y-6">
               {/* Dynamic Content Extraction */}
               {(() => {
+                if (selectedNode === 'Shared State') {
+                  // Show full shared state details
+                  const allFindings = report?.findings || [];
+                  const allIOCs = report?.iocs || [];
+                  const allErrors = report?.error_logs || [];
+                  const uniqueAgents = [...new Set(allFindings.map(f => f.agent))];
+                  return (
+                    <>
+                      <div>
+                        <h5 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">bug_report</span> Findings ({allFindings.length})</h5>
+                        {allFindings.length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic">No findings yet — agents still processing...</p>
+                        ) : (
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {uniqueAgents.map(agent => (
+                              <div key={agent}>
+                                <p className="text-[9px] font-bold text-primary uppercase mb-1">{agent}</p>
+                                {allFindings.filter(f => f.agent === agent).map((f, i) => (
+                                  <div key={i} className="bg-slate-100 dark:bg-slate-950 p-2 rounded-md text-[9px] mb-1 border border-slate-200 dark:border-slate-800">
+                                    <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold mr-1 ${
+                                      f.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
+                                      f.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                                      f.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400' :
+                                      'bg-green-500/20 text-green-400'
+                                    }`}>{f.severity}</span>
+                                    <span className="text-slate-600 dark:text-slate-400">{f.description?.substring(0, 80)}...</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <h5 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">shield</span> IOCs ({allIOCs.length})</h5>
+                        {allIOCs.length === 0 ? (
+                          <p className="text-[10px] text-slate-400 italic">No IOCs extracted yet.</p>
+                        ) : (
+                          <div className="space-y-1 max-h-32 overflow-y-auto">
+                            {allIOCs.map((ioc, i) => (
+                              <div key={i} className="flex items-center gap-2 text-[9px] bg-slate-100 dark:bg-slate-950 p-1.5 rounded border border-slate-200 dark:border-slate-800">
+                                <span className="bg-primary/20 text-primary px-1.5 py-0.5 rounded font-bold">{ioc.ioc_type}</span>
+                                <span className="text-slate-600 dark:text-slate-300 font-mono truncate">{ioc.value}</span>
+                                <span className="text-slate-400 ml-auto text-[8px]">{ioc.source_agent}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {allErrors.length > 0 && (
+                        <div>
+                          <h5 className="text-[10px] font-bold text-red-400 uppercase tracking-widest mb-2 flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">error</span> Errors ({allErrors.length})</h5>
+                          <div className="space-y-1 max-h-20 overflow-y-auto">
+                            {allErrors.map((err: string, i: number) => (
+                              <p key={i} className="text-[9px] text-red-400 bg-red-500/10 p-1.5 rounded">{typeof err === 'string' ? err : JSON.stringify(err)}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                }
+
                 const agentId = selectedNode.split(' ')[0].toLowerCase();
                 const agentFindings = report?.findings?.filter(f => f.agent.toLowerCase().includes(agentId)) || [];
                 const agentIOCs = report?.iocs?.filter(i => i.source_agent.toLowerCase().includes(agentId)) || [];
@@ -212,7 +275,7 @@ export const GraphView = () => {
                 const inputData = {
                   timestamp: report?.timestamp || new Date().toISOString(),
                   event_source: report?.event_type || 'unknown',
-                  context: agentId === 'email' ? 'base64_eml_stream' : agentId === 'forensic' ? 'cloudtrail_log_segment' : 'threat_intel_query'
+                  context: agentId === 'email' ? 'raw_eml + phishing_classifier' : agentId === 'forensic' ? 'cloudtrail_logs + vpc_flow_logs' : 'virustotal + abuseipdb'
                 };
 
                 // Construct dynamic output from findings/IOCs

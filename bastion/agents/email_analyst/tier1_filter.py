@@ -105,6 +105,49 @@ _PHISHING_RULES: list[tuple[str, re.Pattern]] = [
             re.IGNORECASE,
         ),
     ),
+    # ── Additional rules for correlated/structured email events ──────
+    (
+        "security_alert",
+        re.compile(
+            r"\b(security\s+alert|unusual\s+login|unrecognized\s+device|unauthorized\s+access|suspicious\s+activity)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "credential_harvest",
+        re.compile(
+            r"\b(domain\s+credentials?|enter\s+(your\s+)?(password|credentials?)|log\s*in\s+credentials?)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "impersonation_authority",
+        re.compile(
+            r"\b(federal\s+reserve|regulatory|compliance\s+update|internal\s+audit|ceo|finance\s+officer|SWIFT\s+transfer)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "compliance_pressure",
+        re.compile(
+            r"\b(mandatory|must\s+be\s+applied|require[ds]?\s+.{0,20}update|immediately)\b",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "ip_in_url_lure",
+        re.compile(
+            r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "device_login_scare",
+        re.compile(
+            r"\b(login\s+from.{0,30}(device|location|IP)|secure\s+your\s+account|review\s+(the|your)\s+logs)\b",
+            re.IGNORECASE,
+        ),
+    ),
 ]
 
 
@@ -115,6 +158,12 @@ _SUSPICIOUS_DOMAIN_PATTERNS: list[re.Pattern] = [
     re.compile(r"(bank|paypal|chase|wells\s?fargo).*\.(xyz|top|tk|ml|ga|cf|pw)", re.IGNORECASE),
     re.compile(r"\d{4,}.*\.(com|net|org)", re.IGNORECASE),
     re.compile(r"[a-z]+-[a-z]+-[a-z]+\.(com|net)", re.IGNORECASE),
+    # Banking-themed impersonation domains
+    re.compile(r"(vault|portal|desk|reserve|swift).*bank", re.IGNORECASE),
+    re.compile(r"bank.*(vault|portal|desk|secure)", re.IGNORECASE),
+    re.compile(r"federal-reserve|reserve-notice", re.IGNORECASE),
+    re.compile(r"(it-desk|help-?desk).*\.(net|com)", re.IGNORECASE),
+    re.compile(r"(swift|ach|wire)-.*\.(com|net)", re.IGNORECASE),
 ]
 
 
@@ -201,33 +250,41 @@ def run_static_filter(
                 matched_rules.append(f"suspicious_sender:{sender_domain}")
                 break
 
-    # 7. Compute hybrid risk score (combines ML + rules)
+    # 7. Check for IP-based URLs (strong phishing signal)
+    ip_url_found = bool(re.search(r"https?://\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}", combined_text))
+    if ip_url_found and "ip_in_url_lure" not in [r for r in matched_rules]:
+        matched_rules.append("ip_in_url_detected")
+
+    # 8. Compute hybrid risk score (combines ML + rules)
     score = 0
     
-    # ML score contributes up to 60 points
+    # ML score contributes up to 50 points
     if USE_ML_CLASSIFIER and ml_score > 0:
-        score += int(ml_score * 60)
+        score += int(ml_score * 50)
         if ml_verdict == "PHISHING":
             matched_rules.append(f"ml_phishing:{ml_score:.2f}")
         elif ml_verdict == "SUSPICIOUS":
             matched_rules.append(f"ml_suspicious:{ml_score:.2f}")
     
-    # Rule-based score contributes up to 40 points
-    score += min(len(matched_rules) * 5, 20)
+    # Rule-based score — each rule contributes more weight
+    score += min(len(matched_rules) * 8, 30)
     score += min(len(urls) * 3, 10)
-    score += min(len(ips) * 2, 5)
-    score += min(len(header_ips) * 2, 5)
+    score += min(len(ips) * 3, 10)
+    score += min(len(header_ips) * 3, 10)
+    # IP-based URL is a very strong signal
+    if ip_url_found:
+        score += 15
     score = min(score, 100)
 
-    # Decision logic: ML verdict takes priority if confident
+    # Decision logic: ANY matched rule = SUSPICIOUS (don't let attacks slip through)
     if USE_ML_CLASSIFIER and ml_score >= 0.7:
         decision = "SUSPICIOUS"  # High ML confidence = escalate to Tier 2
-    elif USE_ML_CLASSIFIER and ml_score < 0.3 and len(matched_rules) <= 2:
-        decision = "CLEAN"  # Low ML score + few rules = likely clean
     elif matched_rules:
-        decision = "SUSPICIOUS"
+        decision = "SUSPICIOUS"  # Even 1 rule match = escalate (security-first)
+    elif USE_ML_CLASSIFIER and ml_score >= 0.3:
+        decision = "SUSPICIOUS"  # Medium ML score without rules = still worth checking
     else:
-        decision = "CLEAN"
+        decision = "CLEAN"  # No rules matched AND ML score < 0.3
 
     log.info(
         "tier1.result",

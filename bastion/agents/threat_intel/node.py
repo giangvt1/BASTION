@@ -405,24 +405,109 @@ def _build_response(
 
 
 def _build_fallback_analysis(tier1_result) -> ThreatIntelOutput:
-    """Build a fallback analysis when the ReAct agent fails."""
+    """Build a fallback analysis when ReAct agent fails.
+
+    Instead of returning empty enrichments, directly call the threat intel
+    tools on each IOC to provide at least heuristic/API-based data.
+    """
+    log = logger.bind(component="threat_intel_fallback")
+    log.info("threat_intel.fallback_direct_enrichment", ioc_count=len(tier1_result.filtered_iocs))
+
+    enrichments = []
+    all_flags: list[str] = []
+    max_risk = "BENIGN"
+    risk_order = ["BENIGN", "UNKNOWN", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
+
+    for ioc in tier1_result.filtered_iocs[:10]:
+        ioc_type = ioc.get("ioc_type", "unknown").lower()
+        value = ioc.get("value", "")
+        if not value:
+            continue
+
+        enrichment: dict = {
+            "ioc_type": ioc_type,
+            "value": value,
+            "source_agent": ioc.get("source_agent", "unknown"),
+        }
+
+        try:
+            if ioc_type == "ip":
+                vt_result = virustotal_lookup.invoke({"ioc_value": value, "ioc_type": "ip"})
+                abuse_result = abuseipdb_check.invoke({"ip_address": value})
+                geo_result = ip_geolocation.invoke({"ip_address": value})
+
+                enrichment["virustotal"] = vt_result
+                enrichment["abuseipdb"] = abuse_result
+                enrichment["geolocation"] = geo_result
+
+                for result in [vt_result, abuse_result, geo_result]:
+                    r = result.get("risk_level", "UNKNOWN")
+                    if r in risk_order and risk_order.index(r) > risk_order.index(max_risk):
+                        max_risk = r
+                    all_flags.extend(result.get("flags", []))
+
+            elif ioc_type == "domain":
+                vt_result = virustotal_lookup.invoke({"ioc_value": value, "ioc_type": "domain"})
+                whois_result = whois_domain_lookup.invoke({"domain": value})
+
+                enrichment["virustotal"] = vt_result
+                enrichment["whois"] = whois_result
+
+                for result in [vt_result, whois_result]:
+                    r = result.get("risk_level", "UNKNOWN")
+                    if r in risk_order and risk_order.index(r) > risk_order.index(max_risk):
+                        max_risk = r
+                    all_flags.extend(result.get("flags", []))
+
+            elif ioc_type in ("url", "hash", "email"):
+                vt_result = virustotal_lookup.invoke({"ioc_value": value, "ioc_type": ioc_type})
+                enrichment["virustotal"] = vt_result
+                r = vt_result.get("risk_level", "UNKNOWN")
+                if r in risk_order and risk_order.index(r) > risk_order.index(max_risk):
+                    max_risk = r
+
+        except Exception as e:
+            log.warning("threat_intel.fallback_tool_error", ioc=value, error=str(e)[:200])
+            enrichment["error"] = str(e)[:200]
+
+        # Tag enrichment source: "api" or "heuristic" based on tool response
+        vt_src = enrichment.get("virustotal", {}).get("source", "")
+        abuse_src = enrichment.get("abuseipdb", {}).get("source", "")
+        if vt_src == "VirusTotal" or abuse_src == "AbuseIPDB":
+            enrichment["enrichment_source"] = "api"
+        elif vt_src == "heuristic" or abuse_src == "heuristic":
+            enrichment["enrichment_source"] = "heuristic"
+        else:
+            enrichment["enrichment_source"] = "unknown"
+
+        enrichments.append(enrichment)
+
     has_high_risk = any(
         "tor_exit" in ind or "brand_impersonation" in ind
         for ind in tier1_result.static_risk_indicators
     )
-    status = "SUSPICIOUS" if has_high_risk else "UNKNOWN"
+
+    if max_risk in ("HIGH", "CRITICAL"):
+        status = "SUSPICIOUS"
+    elif has_high_risk:
+        status = "SUSPICIOUS"
+    else:
+        status = "UNKNOWN"
 
     return ThreatIntelOutput(
         status=status,
-        confidence_score=0.3 + (tier1_result.static_risk_score / 200),
-        ioc_enrichments=[],
+        confidence_score=0.4 + (tier1_result.static_risk_score / 200),
+        ioc_enrichments=enrichments,
         mitre_tactics=[],
         threat_actor_attribution="",
-        recommended_action="Manual investigation required -- ReAct agent failed.",
+        recommended_action="Review enrichment data -- ReAct agent unavailable, tool-based fallback used.",
         reasoning_chain=(
             f"Tier 1 flagged {len(tier1_result.static_risk_indicators)} indicators: "
             f"{', '.join(tier1_result.static_risk_indicators[:5])}. "
             f"Risk score: {tier1_result.static_risk_score}. "
-            f"ReAct agent failed -- using rule-based fallback."
+            f"Direct tool enrichment: {len(enrichments)} IOCs processed. "
+            f"Highest risk level: {max_risk}. "
+            f"Flags: {', '.join(all_flags[:10]) or 'none'}."
         ),
     )
+

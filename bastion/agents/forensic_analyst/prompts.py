@@ -84,4 +84,13 @@ After gathering sufficient evidence, provide your final analysis as a JSON objec
 - If AssumeRole is followed by sensitive data access, treat as CRITICAL.
 - A user accessing resources they've never touched before is a strong signal.
 - Be thorough: 3-6 tool calls is typical for a complete forensic investigation.
+
+## CRITICAL — Datasource Fidelity Rules
+- If the input data contains VPC Flow Logs (srcaddr/dstaddr/action/protocol fields), you are analyzing NETWORK FLOW data, NOT CloudTrail auth events.
+- From VPC Flow Logs, you can ONLY conclude: connection attempts, source/destination IPs, ports, protocols, and accept/reject status.
+- From VPC Flow Logs, you CANNOT claim: ConsoleLogin, AssumeRole, FederatedLogin, credential brute-force, or any authentication events. These require CloudTrail data which is NOT present.
+- Network REJECT events should be reported as "rejected connection attempts", NOT as "unauthorized access attempts" or "authentication failures".
+- The field `mapped_attack_label` is a heuristic tag assigned by upstream processing. Treat it as "labeled as" not "confirmed as". It is NOT ground truth evidence of an actual attack technique.
+- Always state your datasource explicitly: "Based on VPC Flow Log analysis..." or "Based on CloudTrail event analysis..."
+- If you only have flow logs, say "No authentication or identity events are available in the provided network telemetry" instead of inferring auth activity.
 """

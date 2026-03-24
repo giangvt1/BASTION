@@ -109,7 +109,13 @@ def forensic_analyst_node(state: BastionState) -> dict:
 # ── Helper: extract log context from various payload formats ────────────
 
 def _extract_log_context(payload: dict) -> dict:
-    """Extract forensic context from different event payload structures."""
+    """Extract forensic context from different event payload structures.
+    
+    Supports:
+    - Standard CloudTrail format (with context_logs.Records)
+    - CSV batch uploads (list of dicts)
+    - VPC Flow Log format from correlated JSON (aws_network_events)
+    """
     detail = payload.get("detail", payload)
 
     context_logs = {}
@@ -120,20 +126,30 @@ def _extract_log_context(payload: dict) -> dict:
         # CSV batch log upload format
         context_logs = {"Records": detail}
         if detail and isinstance(detail[0], dict):
-            # Extract basic data from the first record if available
             user = detail[0].get("user", "")
             anomaly_trigger = detail[0].get("anomaly_trigger", "")
     elif isinstance(detail, dict):
-        context_logs = detail.get("context_logs", {})
-        if not context_logs:
-            if "Records" in detail:
-                context_logs = {"Records": detail["Records"]}
-            elif any(k in detail for k in ("eventName", "eventTime", "eventID", "sourceIPAddress")):
-                # Flat EventBridge event or CSV row
-                context_logs = {"Records": [detail]}
+        # ── Check for VPC Flow Log network events (correlated JSON) ──
+        network_events = detail.get("aws_network_events", [])
+        if network_events:
+            records = _convert_network_events_to_records(network_events)
+            context_logs = {"Records": records}
+            correlation_ip = detail.get("correlation_ip", "")
+            anomaly_trigger = f"Correlated network activity from IP {correlation_ip}" if correlation_ip else "VPC Flow Log anomaly"
+            # Also merge with any existing CloudTrail records
+            existing_records = detail.get("context_logs", {}).get("Records", [])
+            if existing_records:
+                context_logs["Records"] = existing_records + records
+        else:
+            context_logs = detail.get("context_logs", {})
+            if not context_logs:
+                if "Records" in detail:
+                    context_logs = {"Records": detail["Records"]}
+                elif any(k in detail for k in ("eventName", "eventTime", "eventID", "sourceIPAddress")):
+                    context_logs = {"Records": [detail]}
 
         user = detail.get("user", "")
-        anomaly_trigger = detail.get("anomaly_trigger", "")
+        anomaly_trigger = anomaly_trigger or detail.get("anomaly_trigger", "")
 
     # Try to extract user from records if not provided
     if not user and context_logs.get("Records"):
@@ -144,7 +160,6 @@ def _extract_log_context(payload: dict) -> dict:
             else:
                 user = str(identity) if identity else ""
             
-            # Fallback for flattened CSV headers
             if not user and "userIdentity.userName" in rec:
                 user = rec.get("userIdentity.userName")
             elif not user and "userName" in rec:
@@ -158,6 +173,64 @@ def _extract_log_context(payload: dict) -> dict:
         "user": user,
         "anomaly_trigger": anomaly_trigger,
     }
+
+
+def _convert_network_events_to_records(network_events: list[dict]) -> list[dict]:
+    """Convert VPC Flow Log events from correlated JSON into CloudTrail-compatible Records.
+    
+    Maps VPC Flow Log fields to CloudTrail-like fields so the existing
+    Tier 1 anomaly filter and Tier 2 agent can process them.
+    
+    VPC Flow Log format (from a.json):
+        { "cloudwatch_timestamp": "...", "message": { "srcaddr", "dstaddr", "srcport",
+          "dstport", "protocol", "packets", "bytes", "action", "mapped_attack_label" } }
+    
+    Mapped to CloudTrail-like Record:
+        { "eventName": mapped_attack_label, "eventTime": timestamp,
+          "sourceIPAddress": srcaddr, ... }
+    """
+    records = []
+    
+    for ne in network_events:
+        ts = ne.get("cloudwatch_timestamp", "")
+        msg = ne.get("message", {}) if isinstance(ne, dict) else {}
+        
+        attack_label = msg.get("mapped_attack_label", "unknown_network_event")
+        action = msg.get("action", "")  # ACCEPT or REJECT
+        
+        # Use VPC-native event names — DO NOT map to CloudTrail events.
+        # The attack_label is a heuristic tag, NOT a confirmed CloudTrail eventName.
+        event_name = f"VPCFlow:{action}:{attack_label}"
+        
+        record = {
+            "eventName": event_name,
+            "eventTime": ts,
+            "sourceIPAddress": msg.get("srcaddr", ""),
+            "eventSource": "vpc-flow-logs.amazonaws.com",
+            "datasource": "vpcflow",  # Tag for downstream Sigma/synthesis
+            "errorCode": f"Connection{action}" if action else "",
+            "userIdentity": {
+                "type": "AWSService",
+                "principalId": "vpc-flow-log",
+                "userName": "",
+            },
+            # Preserve original VPC Flow Log data for the LLM agent
+            "_vpc_flow_log": {
+                "srcaddr": msg.get("srcaddr", ""),
+                "dstaddr": msg.get("dstaddr", ""),
+                "srcport": msg.get("srcport", 0),
+                "dstport": msg.get("dstport", 0),
+                "protocol": msg.get("protocol", 0),
+                "packets": msg.get("packets", 0),
+                "bytes": msg.get("bytes", 0),
+                "action": action,
+                "mapped_attack_label": attack_label,
+                "_note": "mapped_attack_label is a HEURISTIC tag, not confirmed attack evidence",
+            },
+        }
+        records.append(record)
+    
+    return records
 
 
 # ── Tier 2: ReAct Agent ────────────────────────────────────────────────
@@ -268,6 +341,18 @@ def _run_react_agent(
         ]
         findings_context = f"\n\nFindings from other agents:\n" + "\n".join(finding_lines)
 
+    # Detect datasource type from records
+    records_list = context_logs.get("Records", [])
+    has_vpcflow = any(r.get("datasource") == "vpcflow" or r.get("eventSource") == "vpc-flow-logs.amazonaws.com" for r in records_list if isinstance(r, dict))
+    datasource_label = "VPC Flow Logs" if has_vpcflow else "CloudTrail Logs"
+    datasource_warning = ""
+    if has_vpcflow:
+        datasource_warning = (
+            "\n\nCRITICAL DATASOURCE NOTE: These are VPC FLOW LOGS, NOT CloudTrail auth events. "
+            "You can only conclude: connection attempts, src/dst IPs, ports, protocols, and accept/reject status. "
+            "Do NOT claim ConsoleLogin, AssumeRole, or credential attacks from this data.\n"
+        )
+
     task_message = (
         f"Investigate the following security anomaly.\n\n"
         f"User: {user}\n"
@@ -275,8 +360,9 @@ def _run_react_agent(
         f"Tier 1 anomaly filter flagged these rules: {tier1_result.rule_matches}\n"
         f"Anomaly score: {tier1_result.anomaly_score:.3f}\n"
         f"Source IPs: {tier1_result.source_ips}\n\n"
-        f"Context CloudTrail Logs ({len(context_logs.get('Records', []))} events):\n"
+        f"Context {datasource_label} ({len(records_list)} events):\n"
         f"{records_summary}"
+        f"{datasource_warning}"
         f"{ioc_context}"
         f"{findings_context}\n\n"
         f"Use the available tools to conduct a thorough forensic investigation, "
@@ -438,11 +524,25 @@ def _build_response(
     if analysis.generated_sigma_rule:
         sigma_note = f" Sigma rule generated ({len(analysis.generated_sigma_rule)} chars)."
 
+    # Detect datasource type from tier1 data
+    datasource = "cloudtrail"  # default
+    for ip in tier1_result.source_ips:
+        # If source IPs came from VPC flow logs, tag accordingly
+        pass
+    if any(r == "vpc_flow_reject" or r == "vpc_flow_anomaly" for r in tier1_result.rule_matches):
+        datasource = "vpcflow"
+    # Also check flagged events for VPC flow source
+    for evt in tier1_result.flagged_events:
+        if isinstance(evt, dict) and evt.get("eventSource") == "vpc-flow-logs.amazonaws.com":
+            datasource = "vpcflow"
+            break
+
     findings = [
         {
             "agent": "forensic_analyst",
             "finding_type": "forensic_investigation",
             "severity": severity_map.get(analysis.status, "HIGH"),
+            "datasource": datasource,
             "evidence": {
                 "status": analysis.status,
                 "confidence_score": analysis.confidence_score,

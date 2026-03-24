@@ -16,8 +16,8 @@ export const Sidebar = ({ selectedAgentId, onSelectAgent }: { selectedAgentId?: 
   return (
     <aside className="w-full lg:w-72 border-r border-slate-200 dark:border-primary/10 p-6 flex flex-col gap-6 overflow-y-auto bg-white/50 dark:bg-transparent">
       <div>
-        <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 mb-1">LangGraph</h1>
-        <p className="text-slate-500 dark:text-slate-400 text-sm">Multi-Agent State Machine</p>
+        <h1 className="text-xl font-black text-slate-900 dark:text-slate-100 mb-1">BASTION</h1>
+        <p className="text-slate-500 dark:text-slate-400 text-sm">LangGraph Multi-Agent Orchestrator</p>
       </div>
       <div className="space-y-2">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400">Active Agents</p>
@@ -56,11 +56,11 @@ export const Sidebar = ({ selectedAgentId, onSelectAgent }: { selectedAgentId?: 
       <div className="mt-auto p-4 rounded-xl bg-slate-100 dark:bg-primary/5 border border-slate-200 dark:border-primary/10">
         <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Node Status</p>
         <div className="flex items-center justify-between text-xs mb-1">
-          <span>Active Traces</span>
-          <span className="text-primary font-bold">12</span>
+          <span>Active Agents</span>
+          <span className="text-primary font-bold">{nodes.filter(n => n.status === 'running').length} / {nodes.length}</span>
         </div>
         <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-          <div className="bg-primary h-full w-[65%]"></div>
+          <div className="bg-primary h-full transition-all duration-500" style={{ width: `${nodes.length > 0 ? (nodes.filter(n => n.status === 'completed').length / nodes.length) * 100 : 0}%` }}></div>
         </div>
       </div>
     </aside>

@@ -182,7 +182,7 @@ export default function Pipeline() {
                       <p className={`text-[11px] font-bold uppercase ${hasPinecone ? 'text-primary' : 'text-slate-800 dark:text-slate-200'}`}>Pinecone DB / OSINT</p>
                     </div>
                     <p className="text-[10px] text-slate-500">
-                      {hasPinecone ? 'Enriching via semantic search & VT/AlienVault.' : 'Idle. Awaiting threat intelligence.'}
+                      {hasPinecone ? 'Enriching via semantic search & VirusTotal.' : 'Idle. Awaiting threat intelligence.'}
                     </p>
                   </div>
                 </div>
