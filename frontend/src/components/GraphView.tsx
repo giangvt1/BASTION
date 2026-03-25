@@ -224,9 +224,9 @@ export const GraphView = () => {
                                 {allFindings.filter(f => f.agent === agent).map((f, i) => (
                                   <div key={i} className="bg-slate-100 dark:bg-slate-950 p-2 rounded-md text-[9px] mb-1 border border-slate-200 dark:border-slate-800">
                                     <span className={`inline-block px-1.5 py-0.5 rounded text-[8px] font-bold mr-1 ${
-                                      f.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
-                                      f.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
-                                      f.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400' :
+                                      String(f.severity).toUpperCase() === 'CRITICAL' ? 'bg-red-500/20 text-red-400' :
+                                      String(f.severity).toUpperCase() === 'HIGH' ? 'bg-orange-500/20 text-orange-400' :
+                                      String(f.severity).toUpperCase() === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400' :
                                       'bg-green-500/20 text-green-400'
                                     }`}>{f.severity}</span>
                                     <span className="text-slate-600 dark:text-slate-400">{f.description?.substring(0, 80)}...</span>
