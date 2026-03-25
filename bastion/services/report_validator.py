@@ -405,11 +405,13 @@ def _check_sigma_consistency(
             detection_block = _extract_section(sigma_section, "detection", "level") or sigma_section
             for match in re.finditer(r"^\s{2,}(\w+):", detection_block, re.MULTILINE):
                 field_name = match.group(1)
-                # Skip YAML structural keys
+                # Skip YAML structural keys and Sigma section names (selection, selection_1, etc.)
                 if field_name in ("selection", "condition", "filter", "detection",
                                   "logsource", "product", "service", "title",
                                   "status", "description", "author", "date",
                                   "level", "tags", "falsepositives", "id", "fields"):
+                    continue
+                if field_name.startswith("selection"):  # selection_1, selection_2, etc.
                     continue
                 # Skip fields already handled by field name fixes
                 if field_name in known_wrong_names:

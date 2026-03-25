@@ -148,21 +148,38 @@ Both APIs use a **graceful fallback mechanism** — if the API key is missing, r
 
 ```text
 .
-├── frontend/                # React SOC Dashboard & Pipeline Visualizer
-├── bastion/                 # Core Python backend
-│   ├── agents/              # Specialized AI agents
-│   │   ├── supervisor/      #   Routing & orchestration
-│   │   ├── email_analyst/   #   Email parsing & phishing detection
-│   │   ├── forensic_analyst/#   CloudTrail forensics & anomaly detection
-│   │   └── threat_intel/    #   IOC enrichment (VT, AbuseIPDB, WHOIS, Geo)
-│   ├── models/              # ML/DL models (BERT, LSTM, Isolation Forest)
-│   ├── services/            # AWS integrations (Athena, DynamoDB, S3, Gemini)
-│   ├── tools/               # LangChain tools (threat_intel, email extraction)
-│   └── graph/               # LangGraph workflow definition
-├── lambda_handlers/         # Serverless AWS Lambda handlers
-├── scripts/                 # API server, local testing, training scripts
-├── dataset/                 # Demo inputs & sample artifacts
-└── README.md
+├── bastion/                 # 🔧 BACKEND — Python multi-agent pipeline
+│   ├── agents/              #    AI agents (Supervisor, Email, Forensic, Threat Intel, Synthesis)
+│   │   ├── supervisor/      #      Routing & orchestration logic
+│   │   ├── email_analyst/   #      Tier 1 ML filter + Tier 2 ReAct agent
+│   │   ├── forensic_analyst/#      CloudTrail forensics & anomaly detection
+│   │   ├── threat_intel/    #      IOC enrichment (VirusTotal, AbuseIPDB, WHOIS)
+│   │   └── synthesis.py     #      Report generation + evidence discipline prompt
+│   ├── models/              #    ML/DL models (BERT, LSTM, Sentence-BERT)
+│   ├── services/            #    AWS services (Athena, DynamoDB, S3) + Gemini + Report Validator
+│   ├── graph/               #    LangGraph workflow definition
+│   ├── vector_store/        #    Pinecone integration (embeddings, corpus loader)
+│   └── data/                #    Phishing corpus + MITRE ATT&CK corpus
+│
+├── frontend/                # 🎨 FRONTEND — React SOC Dashboard
+│   └── src/
+│       ├── pages/           #    SOCDashboard, Orchestrator, Metrics
+│       ├── components/      #    Header, Sidebar, GraphView, RightPanel
+│       └── services/        #    API client (connects to backend)
+│
+├── scripts/                 # 🛠️ SCRIPTS — Server & training utilities
+│   ├── api_server.py        #    FastAPI backend server (main entry point)
+│   ├── run_local.py         #    Local CLI runner for testing
+│   ├── train_*.py           #    ML model training scripts
+│   └── test_*.py            #    Integration test scripts
+│
+├── lambda_handlers/         # ☁️ AWS LAMBDA — Production deployment handlers
+├── dataset/                 # 📊 DATA — Test inputs + ML training datasets
+├── notebooks/               # 📓 NOTEBOOKS — ML model training & evaluation
+├── tests/                   # 🧪 TESTS — Unit + integration test suites
+├── docs/                    # 📄 DOCS — System design & deployment guides
+├── requirements.txt         #    Python dependencies
+└── pyproject.toml           #    Project metadata & build config
 ```
 
 ---

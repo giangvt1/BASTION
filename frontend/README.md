@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# BASTION Frontend — SOC Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Real-time Security Operations Center dashboard built with React, TypeScript, and Vite.
 
-Currently, two official plugins are available:
+## Tech Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **React 19** + **TypeScript 5.9**
+- **Vite 8** (dev server & build)
+- **TailwindCSS 3** (styling)
+- **React Router** (SPA routing)
+- **React Markdown** + **remark-gfm** (report rendering)
 
-## React Compiler
+## Pages
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Page | Route | Description |
+|------|-------|-------------|
+| **SOC Dashboard** | `/` | Main analyst workspace — file upload, pipeline status, report viewer, IOC table |
+| **Orchestrator** | `/orchestrator` | Real-time multi-agent orchestration and pipeline state viewer |
+| **Metrics** | `/metrics` | System performance metrics, MTTR, false positive rates |
 
-## Expanding the ESLint configuration
+## Components
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+| Component | Purpose |
+|-----------|---------|
+| `Header` | Top navigation bar with branding and status indicators |
+| `Sidebar` | Left navigation with page links and quick actions |
+| `GraphView` | LangGraph agent workflow visualization (node graph) |
+| `RightPanel` | Context panel for IOC details, agent logs, and enrichment data |
+| `Footer` | Status bar with connection state and version info |
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## API Integration
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+The frontend connects to the backend API server (`scripts/api_server.py`) via REST endpoints defined in `src/services/api.ts`.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/analyze` | POST | Submit security artifacts for analysis |
+| `/results/{task_id}` | GET | Retrieve analysis results |
+| `/stream/{task_id}` | SSE | Real-time pipeline progress streaming |
+
+## Getting Started
+
+```bash
+# Install dependencies
+npm install
+
+# Start dev server (connects to backend on port 8001)
+npm run dev
+
+# Build for production
+npm run build
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- **Dev URL:** http://localhost:5173
+- **Backend API:** http://localhost:8001 (must be running)
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+## Development
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm run lint       # ESLint checks
+npm run build      # Production build (TypeScript check + Vite)
+npm run preview    # Preview production build
 ```
