@@ -1,8 +1,10 @@
 import sys
+import os
 import csv
 import io
 import json
 import time
+import boto3
 from collections import deque
 import asyncio
 import heapq
@@ -315,6 +317,83 @@ def run_upload_task(report_id: str, event: dict):
     except Exception as e:
         logger.exception("Upload graph execution failed")
         reports_db[report_id] = {"error": str(e), "status": "failed"}
+
+# ── AWS SQS Hybrid Poller ──
+async def sqs_poller_task():
+    """Background task that polls AWS SQS for events filtered by Tier 1."""
+    queue_url = getattr(config, "sqs_queue_url", None)
+    if not queue_url:
+        logger.warning("AWS SQS Poller Disabled: BASTION_SQS_QUEUE_URL not configured.")
+        return
+
+    logger.info(f"Starting AWS SQS Hybrid Poller for queue: {queue_url}")
+    try:
+        session = boto3.Session()
+        sqs = session.client('sqs')
+    except Exception as e:
+        logger.error(f"Failed to initialize SQS client: {e}")
+        return
+
+    while True:
+        try:
+            response = await asyncio.to_thread(
+                sqs.receive_message,
+                QueueUrl=queue_url,
+                MaxNumberOfMessages=5,
+                WaitTimeSeconds=10,
+                MessageAttributeNames=['All']
+            )
+
+            messages = response.get('Messages', [])
+            for msg in messages:
+                try:
+                    body_str = msg['Body']
+                    event = json.loads(body_str)
+                    
+                    msg_attrs = msg.get('MessageAttributes', {})
+                    event_type = "cloudtrail"
+                    if 'event_type' in msg_attrs:
+                        event_type = msg_attrs['event_type']['StringValue']
+                    elif 'event_type' in event:
+                        event_type = event['event_type']
+
+                    if 'event_type' not in event:
+                        event['event_type'] = event_type
+                    
+                    report_id = f"AWS-{str(uuid.uuid4())[:8].upper()}"
+                    
+                    logger.info(f"SQS Message Received! Creating report {report_id} | Type: {event_type}")
+                    
+                    reports_db[report_id] = {
+                        "report_id": report_id,
+                        "event_type": event_type,
+                        "status": "running",
+                        "findings": [], "iocs": [], "error_logs": [], "messages": [],
+                        "iteration_count": 0, "risk_score": 0.0, "final_report": "",
+                        "pipeline_logs": [{"node": "eventbridge", "action": "AWS SQS Ingestion", "detail": f"Message pulled from AWS SQS (Tier 1 Passed) - MessageId: {msg['MessageId']}", "ts": datetime.now(timezone.utc).isoformat()}]
+                    }
+                    
+                    # Run the LangGraph execution in a background thread to prevent blocking the poller
+                    asyncio.create_task(asyncio.to_thread(run_upload_task, report_id, event))
+                    
+                    # Delete the message after handing it off to the graph runner
+                    await asyncio.to_thread(
+                        sqs.delete_message,
+                        QueueUrl=queue_url,
+                        ReceiptHandle=msg['ReceiptHandle']
+                    )
+                    logger.info(f"Deleted SQS Message {msg['MessageId']} from queue")
+                    
+                except Exception as inner_e:
+                    logger.error(f"Error processing SQS message: {inner_e}")
+                    
+        except Exception as e:
+            logger.error(f"SQS Polling Error: {e}")
+            await asyncio.sleep(5)
+
+@app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(sqs_poller_task())
 
 @app.post("/upload")
 async def upload_file(request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)):
