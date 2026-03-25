@@ -1,10 +1,22 @@
 import type { Report, TraceEvent, GraphNodeStatus } from '../types';
 
+// Helper to bypass ngrok browser warning interception
+const apiFetch = (url: string, options: RequestInit = {}) => {
+  return fetch(url, {
+    ...options,
+    headers: {
+      'ngrok-skip-browser-warning': 'true',
+      'Content-Type': 'application/json',
+      ...(options.headers || {}),
+    },
+  });
+};
+
 export const fetchReports = async (): Promise<{reports: Report[], count: number}> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     
-    const response = await fetch(`${API_URL}/reports`);
+    const response = await apiFetch(`${API_URL}/reports`);
     if (!response.ok) throw new Error("Failed to fetch reports");
     const data = await response.json();
     return data;
@@ -18,7 +30,7 @@ export const fetchReport = async (id: string): Promise<Report | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     
-    const response = await fetch(`${API_URL}/reports/${id}`);
+    const response = await apiFetch(`${API_URL}/reports/${id}`);
     if (!response.ok) throw new Error("Failed to fetch report");
     const data = await response.json();
     return data.error ? null : data;
@@ -136,7 +148,7 @@ export const fetchAgentLogs = async (agentId: string | null): Promise<any[]> => 
 export const triggerAnalysis = async (eventType: string): Promise<{message: string, report_id: string} | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-    const response = await fetch(`${API_URL}/trigger/${eventType}`, { method: 'POST' });
+    const response = await apiFetch(`${API_URL}/trigger/${eventType}`, { method: 'POST' });
     if (!response.ok) throw new Error("Failed to trigger analysis");
     return await response.json();
   } catch (error) {
@@ -148,7 +160,7 @@ export const triggerAnalysis = async (eventType: string): Promise<{message: stri
 export const fetchStats = async (): Promise<any> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-    const response = await fetch(`${API_URL}/stats`);
+    const response = await apiFetch(`${API_URL}/stats`);
     if (!response.ok) throw new Error("Failed to fetch stats");
     return await response.json();
   } catch (error) {
@@ -162,7 +174,7 @@ export const uploadFile = async (file: File): Promise<{message: string, report_i
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     const formData = new FormData();
     formData.append('file', file);
-    const response = await fetch(`${API_URL}/upload`, { method: 'POST', body: formData });
+    const response = await apiFetch(`${API_URL}/upload`, { method: 'POST', body: formData });
     if (!response.ok) throw new Error("Failed to upload file");
     return await response.json();
   } catch (error) {
@@ -226,9 +238,8 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
 export const submitFeedback = async (reportId: string, feedbackType: string, notes: string = '') => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-    const response = await fetch(`${API_URL}/reports/${reportId}/feedback`, {
+    const response = await apiFetch(`${API_URL}/reports/${reportId}/feedback`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ feedback_type: feedbackType, notes })
     });
     return response.ok;
@@ -241,7 +252,7 @@ export const submitFeedback = async (reportId: string, feedbackType: string, not
 export const pushSigmaRule = async (reportId: string) => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-    const response = await fetch(`${API_URL}/reports/${reportId}/push-sigma`, {
+    const response = await apiFetch(`${API_URL}/reports/${reportId}/push-sigma`, {
       method: 'POST'
     });
     const data = await response.json();

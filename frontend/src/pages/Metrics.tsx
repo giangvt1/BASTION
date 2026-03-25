@@ -20,7 +20,7 @@ export default function Metrics() {
     const load = async () => {
       setStats(await fetchStats());
       try {
-        const res = await fetch(`${API_BASE}/metrics/evaluation`);
+        const res = await fetch(`${API_BASE}/metrics/evaluation`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
         setEvalMetrics(await res.json());
       } catch { /* ignore */ }
     };
@@ -406,7 +406,7 @@ export default function Metrics() {
                     setSelectedReport(r);
                     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
                     try {
-                      const res = await fetch(`${API_URL}/reports/${r.report_id}`);
+                      const res = await fetch(`${API_URL}/reports/${r.report_id}`, { headers: { 'ngrok-skip-browser-warning': 'true' } });
                       setReportDetail(await res.json());
                     } catch { setReportDetail(null); }
                   }}>

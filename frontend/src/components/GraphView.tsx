@@ -14,7 +14,7 @@ export const GraphView = () => {
     // Trigger new analysis
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     try {
-      await fetch(`${API_URL}/trigger/email`, { method: 'POST' });
+      await fetch(`${API_URL}/trigger/email`, { method: 'POST', headers: { 'ngrok-skip-browser-warning': 'true' } });
       // Poll for updates
       const interval = setInterval(async () => {
         const data = await fetchLatestReport();
