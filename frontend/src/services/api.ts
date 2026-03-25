@@ -2,11 +2,13 @@ import type { Report, TraceEvent, GraphNodeStatus } from '../types';
 
 // Helper to bypass ngrok browser warning interception
 const apiFetch = (url: string, options: RequestInit = {}) => {
+  const isFormData = options.body instanceof FormData;
   return fetch(url, {
     ...options,
     headers: {
       'ngrok-skip-browser-warning': 'true',
-      'Content-Type': 'application/json',
+      // Don't set Content-Type for FormData — browser sets it with boundary automatically
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
     },
   });
