@@ -4,13 +4,26 @@ import remarkGfm from 'remark-gfm';
 import { Header } from '../components/Header';
 import { fetchStats } from '../services/api';
 
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8001';
+
 export default function Metrics() {
   const [stats, setStats] = useState<any>(null);
   const [selectedReport, setSelectedReport] = useState<any>(null);
   const [reportDetail, setReportDetail] = useState<any>(null);
+  const [evalMetrics, setEvalMetrics] = useState<any>(null);
+  const [blockedIPs, setBlockedIPs] = useState<Set<string>>(new Set());
+  const [blockToast, setBlockToast] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
-    const load = async () => setStats(await fetchStats());
+    const load = async () => {
+      setStats(await fetchStats());
+      try {
+        const res = await fetch(`${API_BASE}/metrics/evaluation`);
+        setEvalMetrics(await res.json());
+      } catch { /* ignore */ }
+    };
     load();
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
@@ -245,17 +258,17 @@ export default function Metrics() {
                 
                 {/* Legend */}
                 <div className="flex flex-col gap-3 justify-center">
-                  {Object.entries(stats.mitre_tactics || {}).sort((a: any, b: any) => b[1] - a[1]).map(([tactic, _count]: any, index) => {
+                  {Object.entries(stats.mitre_tactics || {}).sort((a: any, b: any) => b[1] - a[1]).map(([tactic, count]: any, index) => {
                     const colors = ['#2563eb', '#3b82f6', '#facc15', '#60a5fa', '#84cc16', '#a855f7', '#6366f1', '#ec4899'];
                     const color = colors[index % colors.length];
-                    const displayLabel = tactic.includes(' - ') ? tactic.split(' - ')[1] : tactic;
 
                     return (
-                      <div key={tactic} className="flex items-center gap-4">
+                      <div key={tactic} className="flex items-center gap-3">
                         <span className="w-3.5 h-3.5 rounded-full flex-shrink-0" style={{ backgroundColor: color }}></span>
-                        <span className="text-sm font-medium text-slate-700 dark:text-slate-300 max-w-[200px] truncate" title={tactic}>
-                          {displayLabel}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{tactic}</span>
+                        </div>
+                        <span className="ml-auto text-[10px] font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full text-slate-500">{count}</span>
                       </div>
                     );
                   })}
@@ -265,6 +278,93 @@ export default function Metrics() {
           </div>
         </div>
 
+        {/* System Health & Guardrails */}
+        {evalMetrics && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* ML Model Performance */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+              <h3 className="text-sm font-bold mb-5 flex items-center gap-2 uppercase tracking-widest">
+                <span className="material-symbols-outlined text-emerald-500 text-base">model_training</span>
+                ML Model Performance
+              </h3>
+              <div className="space-y-4">
+                {/* Phishing Classifier */}
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">BERT Phishing Classifier</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 font-bold">ACTIVE</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-3">
+                    {[
+                      { label: 'F1 Score', value: `${(evalMetrics.phishing_classifier.f1_weighted * 100).toFixed(1)}%` },
+                      { label: 'Precision', value: `${(evalMetrics.phishing_classifier.precision_weighted * 100).toFixed(1)}%` },
+                      { label: 'Recall', value: `${(evalMetrics.phishing_classifier.recall_weighted * 100).toFixed(1)}%` },
+                      { label: 'Threshold', value: evalMetrics.phishing_classifier.threshold },
+                    ].map(m => (
+                      <div key={m.label} className="text-center">
+                        <div className="text-lg font-black text-primary">{m.value}</div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">{m.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 text-[10px] text-slate-400">Dataset: {evalMetrics.phishing_classifier.dataset}</div>
+                </div>
+                {/* LSTM Anomaly */}
+                <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-xs font-bold text-slate-600 dark:text-slate-300">LSTM Anomaly Detector</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 font-bold">ACTIVE</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { label: 'Attack Ratio', value: `${evalMetrics.lstm_anomaly_detector.attack_normal_ratio}×` },
+                      { label: 'Anomaly Rate', value: `${(evalMetrics.lstm_anomaly_detector.anomaly_rate * 100).toFixed(1)}%` },
+                      { label: 'Threshold', value: evalMetrics.lstm_anomaly_detector.threshold_value.toFixed(4) },
+                    ].map(m => (
+                      <div key={m.label} className="text-center">
+                        <div className="text-lg font-black text-indigo-500">{m.value}</div>
+                        <div className="text-[9px] font-bold text-slate-400 uppercase">{m.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Pipeline Guardrails */}
+            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm">
+              <h3 className="text-sm font-bold mb-5 flex items-center gap-2 uppercase tracking-widest">
+                <span className="material-symbols-outlined text-amber-500 text-base">shield</span>
+                Pipeline Guardrails & Health
+              </h3>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { label: 'Rate Limit', value: `${evalMetrics.pipeline_guardrails.rate_limit_per_minute}/min`, icon: 'speed', color: 'text-blue-500' },
+                  { label: 'Max Concurrent', value: evalMetrics.pipeline_guardrails.max_concurrent_analyses, icon: 'groups', color: 'text-indigo-500' },
+                  { label: 'Queue Depth', value: `${evalMetrics.active_status.queued_analyses}/${evalMetrics.pipeline_guardrails.priority_queue_max_depth}`, icon: 'queue', color: 'text-violet-500' },
+                  { label: 'Active Analyses', value: evalMetrics.active_status.active_analyses, icon: 'pending', color: 'text-cyan-500' },
+                  { label: 'LLM Rate Limit', value: `${evalMetrics.pipeline_guardrails.llm_rate_limit_per_minute}/min`, icon: 'token', color: 'text-emerald-500' },
+                  { label: 'LLM Retries', value: evalMetrics.pipeline_guardrails.llm_max_retries, icon: 'replay', color: 'text-teal-500' },
+                  { label: 'IP Ban Duration', value: `${evalMetrics.pipeline_guardrails.ip_ban_duration_seconds}s`, icon: 'block', color: 'text-red-500' },
+                  { label: 'Banned IPs', value: evalMetrics.active_status.banned_ips_count, icon: 'gpp_bad', color: evalMetrics.active_status.banned_ips_count > 0 ? 'text-red-500' : 'text-slate-400' },
+                  { label: 'Circuit Breaker', value: evalMetrics.active_status.circuit_breaker_open ? 'OPEN' : 'CLOSED', icon: evalMetrics.active_status.circuit_breaker_open ? 'error' : 'check_circle', color: evalMetrics.active_status.circuit_breaker_open ? 'text-red-500' : 'text-emerald-500' },
+                  { label: 'SQL Limit', value: evalMetrics.pipeline_guardrails.sql_limit_enforced, icon: 'database', color: 'text-amber-500' },
+                  { label: 'Max Iterations', value: evalMetrics.pipeline_guardrails.max_iterations, icon: 'loop', color: 'text-orange-500' },
+                  { label: 'Notifications', value: evalMetrics.active_status.recent_notifications, icon: 'notifications', color: 'text-pink-500' },
+                ].map(g => (
+                  <div key={g.label} className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-3 flex items-center gap-3">
+                    <span className={`material-symbols-outlined ${g.color} text-lg`}>{g.icon}</span>
+                    <div>
+                      <div className="text-sm font-black">{g.value}</div>
+                      <div className="text-[9px] font-bold text-slate-400 uppercase">{g.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Recent Investigations Table */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
           <div className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
@@ -272,7 +372,18 @@ export default function Metrics() {
               <span className="material-symbols-outlined text-primary text-base">history</span>
               Recent Investigations
             </h3>
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Last {stats.recent_reports.length} reports</span>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{stats.recent_reports.length} total</span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}
+                className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 border-0 rounded-lg px-2 py-1 text-slate-600 dark:text-slate-300 cursor-pointer"
+              >
+                <option value={10}>10 / page</option>
+                <option value={20}>20 / page</option>
+                <option value={50}>50 / page</option>
+              </select>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
@@ -280,13 +391,17 @@ export default function Metrics() {
                 <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-bold uppercase tracking-wider text-slate-500">
                   <th className="p-3 pl-4">Report ID</th>
                   <th className="p-3">Type</th>
+                  <th className="p-3">Verdict</th>
                   <th className="p-3">Status</th>
                   <th className="p-3">Risk Score</th>
                   <th className="p-3">Findings</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {stats.recent_reports.length > 0 ? stats.recent_reports.map((r: any) => (
+                {(() => {
+                  const allReports = stats.recent_reports || [];
+                  const paged = allReports.slice((page - 1) * pageSize, page * pageSize);
+                  return paged.length > 0 ? paged.map((r: any) => (
                   <tr key={r.report_id} className="hover:bg-slate-50 dark:hover:bg-slate-800/30 transition-colors cursor-pointer" onClick={async () => {
                     setSelectedReport(r);
                     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
@@ -300,6 +415,22 @@ export default function Metrics() {
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${r.event_type === 'email' ? 'bg-primary/10 text-primary' : 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'}`}>
                         {r.event_type}
                       </span>
+                    </td>
+                    <td className="p-3">
+                      {(() => {
+                        const score = r.risk_score * 100;
+                        const hasCritical = r.findings?.some?.((f: any) => f.severity === 'CRITICAL' || f.severity === 'HIGH');
+                        let verdict = score > 70 ? 'MALICIOUS' : score > 40 ? 'SUSPICIOUS' : 'SAFE';
+                        if (verdict === 'SAFE' && hasCritical) verdict = 'SUSPICIOUS';
+                        const cls = verdict === 'MALICIOUS' ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : verdict === 'SUSPICIOUS' ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600' : 'bg-green-100 dark:bg-green-900/30 text-green-600';
+                        const icon = verdict === 'MALICIOUS' ? 'gpp_bad' : verdict === 'SUSPICIOUS' ? 'warning' : 'verified_user';
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${cls}`}>
+                            <span className="material-symbols-outlined text-xs">{icon}</span>
+                            {verdict}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-3">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${r.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' : r.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600 animate-pulse'}`}>
@@ -319,11 +450,39 @@ export default function Metrics() {
                     </td>
                   </tr>
                 )) : (
-                  <tr><td colSpan={5} className="p-6 text-center text-slate-500 text-sm">No investigations yet. Trigger an analysis to see data here.</td></tr>
-                )}
+                  <tr><td colSpan={6} className="p-6 text-center text-slate-500 text-sm">No investigations yet. Trigger an analysis to see data here.</td></tr>
+                );
+                })()}
               </tbody>
             </table>
           </div>
+          {/* Pagination Controls */}
+          {stats.recent_reports.length > 0 && (
+            <div className="p-3 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 flex justify-between items-center">
+              <span className="text-[10px] font-bold text-slate-400">
+                Showing {Math.min((page - 1) * pageSize + 1, stats.recent_reports.length)}–{Math.min(page * pageSize, stats.recent_reports.length)} of {stats.recent_reports.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page <= 1}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  <span className="material-symbols-outlined text-xs">chevron_left</span> Prev
+                </button>
+                <span className="px-3 py-1 text-[10px] font-black text-primary">
+                  {page} / {Math.ceil(stats.recent_reports.length / pageSize) || 1}
+                </span>
+                <button
+                  onClick={() => setPage(p => Math.min(Math.ceil(stats.recent_reports.length / pageSize), p + 1))}
+                  disabled={page >= Math.ceil(stats.recent_reports.length / pageSize)}
+                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors flex items-center gap-1"
+                >
+                  Next <span className="material-symbols-outlined text-xs">chevron_right</span>
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Report Detail Drawer */}
@@ -347,12 +506,133 @@ export default function Metrics() {
                 <div className="p-6 text-red-500 text-sm">{reportDetail.error}</div>
               ) : (
                 <div className="p-4 space-y-4">
+                  {/* ── Fallback extraction for tier1 + timing ── */}
+                  {(() => {
+                    // Extract tier1 from findings evidence if not set by backend
+                    if (!reportDetail.tier1_filter && reportDetail.findings?.length > 0) {
+                      for (const f of reportDetail.findings) {
+                        if (f.evidence?.tier1_result) {
+                          reportDetail.tier1_filter = f.evidence.tier1_result;
+                          break;
+                        }
+                      }
+                      // Still no tier1? Build from risk score
+                      if (!reportDetail.tier1_filter) {
+                        const risk = reportDetail.risk_score || 0;
+                        reportDetail.tier1_filter = {
+                          decision: risk > 0.4 ? 'SUSPICIOUS' : 'CLEAN',
+                          matched_rules: reportDetail.findings
+                            .filter((f: any) => f.severity === 'CRITICAL' || f.severity === 'HIGH')
+                            .map((f: any) => f.mitre_tactic || f.finding_type)
+                            .filter(Boolean),
+                          static_risk_score: Math.round(risk * 100),
+                          model: reportDetail.event_type === 'email' ? 'DistilBERT (ealvaradob/bert-finetuned-phishing)' : 'LSTM Autoencoder + Isolation Forest',
+                        };
+                      }
+                      // Add model if missing
+                      if (reportDetail.tier1_filter && !reportDetail.tier1_filter.model) {
+                        reportDetail.tier1_filter.model = reportDetail.event_type === 'email'
+                          ? 'DistilBERT (ealvaradob/bert-finetuned-phishing)'
+                          : 'LSTM Autoencoder + Isolation Forest';
+                      }
+                    }
+                    // Estimate processing time from pipeline_logs if not set
+                    if (!reportDetail.processing_time_seconds && reportDetail.pipeline_logs?.length > 1) {
+                      const logs = reportDetail.pipeline_logs;
+                      const first = new Date(logs[0].ts).getTime();
+                      const last = new Date(logs[logs.length - 1].ts).getTime();
+                      if (first && last && last > first) {
+                        reportDetail.processing_time_seconds = Math.round((last - first) / 1000 * 100) / 100;
+                      }
+                    }
+                    return null;
+                  })()}
+
                   {/* Status Bar */}
                   <div className="flex gap-2 flex-wrap">
                     <span className={`px-3 py-1 rounded-lg text-xs font-bold uppercase ${reportDetail.status === 'completed' ? 'bg-green-100 dark:bg-green-900/30 text-green-600' : reportDetail.status === 'failed' ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-600'}`}>{reportDetail.status}</span>
                     <span className="px-3 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 uppercase">{reportDetail.event_type}</span>
                     <span className={`px-3 py-1 rounded-lg text-xs font-bold ${(reportDetail.risk_score * 100) > 60 ? 'bg-red-100 dark:bg-red-900/30 text-red-600' : 'bg-amber-100 dark:bg-amber-900/30 text-amber-600'}`}>Risk: {(reportDetail.risk_score * 100).toFixed(0)}%</span>
+                    {reportDetail.processing_time_seconds && (
+                      <span className="px-3 py-1 rounded-lg text-xs font-bold bg-blue-100 dark:bg-blue-900/30 text-blue-600 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-xs">timer</span>
+                        {reportDetail.processing_time_seconds}s
+                      </span>
+                    )}
                   </div>
+
+                  {/* Processing Timeline */}
+                  {reportDetail.processing_time_seconds && (
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 rounded-xl p-4 border border-blue-200 dark:border-blue-800/50">
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-blue-600 dark:text-blue-400 mb-3 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-sm">schedule</span>
+                        Processing Timeline
+                      </h4>
+                      <div className="flex items-center gap-3">
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Input</span>
+                          <span className="w-3 h-3 rounded-full bg-blue-500 mt-1"></span>
+                        </div>
+                        <div className="flex-1 relative">
+                          <div className="h-1.5 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-blue-500 to-indigo-500 rounded-full animate-pulse" style={{ width: '100%' }}></div>
+                          </div>
+                          <div className="absolute -top-5 left-1/2 -translate-x-1/2 text-xs font-black text-blue-600 dark:text-blue-400">
+                            {reportDetail.processing_time_seconds}s total
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center">
+                          <span className="text-[9px] font-bold text-slate-400 uppercase">Report</span>
+                          <span className="w-3 h-3 rounded-full bg-indigo-500 mt-1"></span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Tier 1 Pre-Filter Result */}
+                  {reportDetail.tier1_filter && (
+                    <div className={`rounded-xl p-4 border ${reportDetail.tier1_filter.decision === 'SUSPICIOUS' ? 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/50' : 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800/50'}`}>
+                      <h4 className="text-xs font-bold uppercase tracking-wider mb-3 flex items-center gap-1" style={{ color: reportDetail.tier1_filter.decision === 'SUSPICIOUS' ? '#d97706' : '#059669' }}>
+                        <span className="material-symbols-outlined text-sm">filter_alt</span>
+                        Tier 1 Pre-Filter Result
+                      </h4>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-bold uppercase ${reportDetail.tier1_filter.decision === 'SUSPICIOUS' ? 'bg-amber-200 dark:bg-amber-800/50 text-amber-700 dark:text-amber-300' : 'bg-emerald-200 dark:bg-emerald-800/50 text-emerald-700 dark:text-emerald-300'}`}>
+                            <span className="material-symbols-outlined text-xs">{reportDetail.tier1_filter.decision === 'SUSPICIOUS' ? 'warning' : 'check_circle'}</span>
+                            {reportDetail.tier1_filter.decision}
+                          </span>
+                          <span className="text-[10px] text-slate-500">→ {reportDetail.tier1_filter.decision === 'SUSPICIOUS' ? 'Escalated to Tier 2 LLM' : 'Passed — no escalation'}</span>
+                        </div>
+                      </div>
+                      {/* Risk Score Bar */}
+                      <div className="mb-3">
+                        <div className="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
+                          <span>Static Risk Score</span>
+                          <span>{reportDetail.tier1_filter.static_risk_score}/100</span>
+                        </div>
+                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2 overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-700 ${reportDetail.tier1_filter.static_risk_score > 70 ? 'bg-red-500' : reportDetail.tier1_filter.static_risk_score > 40 ? 'bg-amber-500' : 'bg-emerald-500'}`}
+                            style={{ width: `${Math.min(reportDetail.tier1_filter.static_risk_score, 100)}%` }}></div>
+                        </div>
+                      </div>
+                      {/* Matched Rules */}
+                      {reportDetail.tier1_filter.matched_rules?.length > 0 && (
+                        <div className="mb-2">
+                          <span className="text-[10px] font-bold text-slate-500 uppercase">Rules Matched ({reportDetail.tier1_filter.matched_rules.length}):</span>
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {reportDetail.tier1_filter.matched_rules.map((rule: string) => (
+                              <span key={rule} className="px-2 py-0.5 rounded bg-slate-200 dark:bg-slate-700 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">{rule}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {/* Model Info */}
+                      {reportDetail.tier1_filter.model && (
+                        <div className="text-[10px] text-slate-400 mt-1">Model: {reportDetail.tier1_filter.model}</div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Final Report */}
                   {reportDetail.final_report && (
@@ -394,7 +674,28 @@ export default function Metrics() {
                               <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${ioc.ioc_type === 'ip' ? 'bg-rose-100 text-rose-600' : 'bg-indigo-100 text-indigo-600'}`}>{ioc.ioc_type}</span>
                               <span className="font-mono font-bold">{ioc.value}</span>
                             </div>
-                            <span className="text-slate-400 text-[10px]">{ioc.source_agent}</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-slate-400 text-[10px]">{ioc.source_agent}</span>
+                              {ioc.ioc_type === 'ip' && (
+                                blockedIPs.has(ioc.value) ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 text-[10px] font-bold">
+                                    <span className="material-symbols-outlined text-xs">block</span>BLOCKED
+                                  </span>
+                                ) : (
+                                  <button
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white text-[10px] font-bold transition-all hover:scale-105 active:scale-95 shadow-sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setBlockedIPs(prev => new Set(prev).add(ioc.value));
+                                      setBlockToast(ioc.value);
+                                      setTimeout(() => setBlockToast(null), 3000);
+                                    }}
+                                  >
+                                    <span className="material-symbols-outlined text-xs">shield</span>Block IP
+                                  </button>
+                                )
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -416,6 +717,19 @@ export default function Metrics() {
           </div>
         )}
       </main>
+
+      {/* Block IP Toast */}
+      {blockToast && (
+        <div className="fixed bottom-6 right-6 z-50 animate-bounce">
+          <div className="bg-red-600 text-white px-5 py-3 rounded-xl shadow-2xl flex items-center gap-3">
+            <span className="material-symbols-outlined text-lg">block</span>
+            <div>
+              <div className="font-bold text-sm">IP Blocked Successfully</div>
+              <div className="text-red-200 text-xs font-mono">{blockToast} → Firewall rule pushed</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

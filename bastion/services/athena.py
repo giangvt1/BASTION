@@ -20,6 +20,24 @@ logger = get_logger(__name__)
 POLL_INTERVAL_SECONDS = 2
 DEFAULT_MAX_WAIT_SECONDS = 60
 
+_SQL_MAX_SCAN_LIMIT = 100
+_SQL_BLOCKED_KEYWORDS = frozenset({"DROP", "DELETE", "INSERT", "UPDATE", "ALTER", "CREATE", "TRUNCATE"})
+
+
+def _validate_sql(sql: str) -> str:
+    """Inject guardrails into LLM-generated SQL.
+
+    - Blocks write/DDL operations
+    - Auto-injects LIMIT if missing
+    """
+    upper = sql.upper().strip().rstrip(";")
+    first_word = upper.split()[0] if upper.split() else ""
+    if first_word in _SQL_BLOCKED_KEYWORDS:
+        raise ValueError(f"SQL guardrail blocked: '{first_word}' operations not permitted on read-only data lake")
+    if "LIMIT" not in upper:
+        sql = sql.rstrip().rstrip(";") + f" LIMIT {_SQL_MAX_SCAN_LIMIT};"
+    return sql
+
 
 def query_cloudtrail_athena(
     sql: str,
@@ -42,6 +60,14 @@ def query_cloudtrail_athena(
         list with a ``_timeout`` marker so the agent can handle gracefully.
     """
     log = logger.bind(service="athena")
+
+    # ── SQL Guardrails ──
+    try:
+        sql = _validate_sql(sql)
+    except ValueError as exc:
+        log.error("athena.sql_guardrail_blocked", error=str(exc))
+        return [{"error": str(exc)}]
+
     resolved_db = database or config.athena_database
     resolved_output = output_location or config.athena_output_bucket
     max_polls = max(1, max_wait_seconds // POLL_INTERVAL_SECONDS)

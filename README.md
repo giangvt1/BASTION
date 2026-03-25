@@ -271,12 +271,15 @@ cd frontend && npm run dev
 
 ## Results / Evaluation
 
-| Metric | Value |
-|--------|-------|
-| **MTTR Reduction** | 30 min → **< 45 seconds** |
-| **False Positive Reduction** | ~60% via ML Tier 1 filtering |
-| **LLM Cost Savings** | ~90% (Tier 1 filters benign events before API calls) |
-| **Threat Intel Accuracy** | Live VT + AbuseIPDB data with graceful fallback |
+| Metric | Value | Source |
+|--------|-------|--------|
+| **MTTR Reduction** | 30 min → **< 45 seconds** | End-to-end pipeline measurement |
+| **Phishing Detection F1** | **88.8%** (threshold 0.7) | CEAS-08 dataset, 7,826 test emails |
+| **Precision (weighted)** | **89.7%** | Notebook `bastion_ml_models.ipynb` |
+| **Recall (weighted)** | **88.8%** | Notebook `bastion_ml_models.ipynb` |
+| **LSTM Anomaly Ratio** | **22.6×** (attack vs normal) | Synthetic attack injection test |
+| **LLM Cost Savings** | ~90% (Tier 1 filters benign events before API calls) | Architecture design |
+| **Threat Intel** | Live VT + AbuseIPDB with heuristic fallback | Runtime measurement |
 
 ## Limitations and Risks
 

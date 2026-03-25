@@ -135,7 +135,15 @@ export default function SOCDashboard() {
   const riskScore = report?.risk_score ? (report.risk_score * 100).toFixed(0) : '0';
   const activeAlerts = report?.findings?.length || 0;
   const isRunning = nodes.some(n => n.status === 'running');
-  const agentHealth = report?.status === 'failed' ? 'Error' : isRunning ? '98.2%' : '100%';
+  const agentHealth = (() => {
+    if (report?.status === 'failed') return 'Error';
+    if (!report || report.status === 'completed') return '100%';
+    // Calculate from actual node status
+    const agentNodes = nodes.filter(n => n.type !== 'supervisor');
+    if (agentNodes.length === 0) return '100%';
+    const responded = agentNodes.filter(n => n.status === 'completed' || n.status === 'running').length;
+    return `${Math.round((responded / agentNodes.length) * 100)}%`;
+  })();
   const pipelineNodes = getPipelineStatus(nodes, report, traces);
 
   // Get detail data for a specific trace step

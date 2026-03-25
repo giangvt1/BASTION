@@ -116,16 +116,16 @@ Khi tat ca agent da loi hoac `MAX_ITERATIONS` vuot gioi han -> force `SYNTHESIZE
 Supervisor vẫn dùng LLM cho routing, nhưng các sub-agents đã được tối ưu:
 
 ### Email Analyst
-- **Tier 1**: BERT phishing classifier (60% false positive reduction)
-- **Tier 2**: Semantic analyzer (95% cost reduction) + LLM fallback
+- **Tier 1**: BERT phishing classifier (F1: 88.8%, Precision: 89.7% on CEAS-08)
+- **Tier 2**: Semantic analyzer + LLM ReAct fallback
 
 ### Forensic Analyst
-- **Tier 1**: Rules + Isolation Forest + LSTM UBA (better anomaly detection)
-- **Tier 2**: Semantic analyzer (95% cost reduction) + LLM fallback
+- **Tier 1**: Rules + Isolation Forest + LSTM UBA (22.6× attack detection ratio)
+- **Tier 2**: LLM ReAct agent with Athena SQL guardrails
 
 ### Overall System Impact
-- **70-90% total LLM cost reduction** (depending on semantic analyzer confidence threshold)
-- **10-20x faster** Tier 2 analysis
+- **~90% LLM cost reduction** (Tier 1 filters benign events before API)
+- **Defense-in-depth**: Tier 1 ML + Tier 2 LLM → combined detection > single tier
 - Supervisor routing cost: ~5-10% of total (minimal impact)
 
 **Future Enhancement (P4)**: Random Forest Supervisor Router

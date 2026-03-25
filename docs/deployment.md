@@ -28,7 +28,7 @@ BASTION_USE_SEMANTIC_ANALYZER=false
 
 ### Strategy 2: Tier 1 ML Only (Recommended for Start)
 
-**Pros**: 60% false positive reduction, minimal training
+**Pros**: ML-based phishing detection (F1: 88.8%), minimal training needed
 **Cons**: Still uses LLM for Tier 2 (moderate cost)
 
 ```bash
@@ -46,8 +46,8 @@ BASTION_USE_SEMANTIC_ANALYZER=false     # Not yet trained
 
 **Training Required**:
 ```bash
-# Train LSTM UBA on historical CloudTrail logs
-python scripts/train_lstm_uba.py --data cloudtrail_logs.json --epochs 100
+# Train LSTM UBA on historical CloudTrail logs (via notebook)
+# See notebooks/bastion_ml_models.ipynb
 ```
 
 **Cost**: ~$40/month (50% reduction vs pure LLM)
@@ -56,7 +56,7 @@ python scripts/train_lstm_uba.py --data cloudtrail_logs.json --epochs 100
 
 ### Strategy 3: Full ML Stack (Recommended for Production)
 
-**Pros**: 95% cost reduction, 10-20x faster, privacy-preserving
+**Pros**: ~90% cost reduction, defense-in-depth ML pipeline
 **Cons**: Requires 1-2 months data collection + training
 
 ```bash
@@ -84,15 +84,13 @@ BASTION_SEMANTIC_ANALYZER_THRESHOLD=0.8
 
 2. **Phase 2**: Export training data
    ```bash
-   python scripts/export_training_data.py --output training_data.json
+   # See notebooks/bastion_ml_models.ipynb
    ```
 
 3. **Phase 3**: Train semantic analyzer
    ```bash
-   python scripts/train_semantic_analyzer.py \
-       --data training_data.json \
-       --epochs 20 \
-       --batch-size 32
+   # Train via notebook or custom script
+   # See notebooks/bastion_ml_models.ipynb
    ```
 
 4. **Phase 4**: Enable semantic analyzer
@@ -462,13 +460,13 @@ aws cloudwatch put-metric-alarm \
 **Enable ML classifiers** to reduce Tier 2 escalations:
 
 ```bash
-BASTION_USE_ML_CLASSIFIER=true      # 60% false positive reduction
-BASTION_USE_LSTM_UBA=true           # Better anomaly detection
+BASTION_USE_ML_CLASSIFIER=true      # F1: 88.8% phishing detection
+BASTION_USE_LSTM_UBA=true           # 22.6x attack detection ratio
 ```
 
 **Impact**: 
-- 40-50% fewer events reach Tier 2 (LLM)
-- Cost reduction: ~30-40%
+- Tier 1 filters benign events before LLM
+- Cost reduction: ~90% vs pure LLM
 
 ### Tier 2 Optimization (After Training)
 
@@ -608,7 +606,7 @@ pinecone_api_key = get_secret("bastion/pinecone-api-key")
 - Get your key: https://aistudio.google.com/app/apikey
 - Free tier: 15 requests/minute, 1500 requests/day
 - Paid tier: Higher rate limits, production usage
-- Model: `gemini-2.5-flash` (fast, cost-effective) or `gemini-2.5-pro` (more capable)
+- Model: `gemini-2.5-flash-lite` (fast, cost-effective) or `gemini-2.5-pro` (more capable)
 
 ---
 
@@ -699,8 +697,8 @@ Adjust confidence threshold based on cost/accuracy tradeoff:
 
 ### Pre-Deployment
 
-- [ ] Train LSTM UBA model on historical CloudTrail logs
-- [ ] Test all ML components with `scripts/test_ml_integration.py`
+- [ ] Train LSTM UBA model on historical CloudTrail logs (see `notebooks/bastion_ml_models.ipynb`)
+- [ ] Test ML components locally
 - [ ] Configure AWS infrastructure (S3, DynamoDB, SQS, EventBridge)
 - [ ] Store API keys in Secrets Manager
 - [ ] Set up CloudWatch alarms
@@ -717,9 +715,8 @@ Adjust confidence threshold based on cost/accuracy tradeoff:
 
 ### After 1-2 Months
 
-- [ ] Export training data: `python scripts/export_training_data.py`
-- [ ] Train semantic analyzer: `python scripts/train_semantic_analyzer.py`
-- [ ] Evaluate model performance: `python scripts/visualize_semantic_analyzer.py`
+- [ ] Export training data and retrain models (see `notebooks/bastion_ml_models.ipynb`)
+- [ ] Evaluate model performance via notebook
 - [ ] Enable semantic analyzer: `BASTION_USE_SEMANTIC_ANALYZER=true`
 - [ ] Monitor cost reduction (should see 70-90% reduction)
 

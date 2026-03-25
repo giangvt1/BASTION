@@ -24,7 +24,7 @@ Phân tích ngữ nghĩa (semantic analysis) các file `.eml` nghi ngờ để p
                     │   TIER 1: Hybrid Filter       │
                     │   ┌─────────────────────────┐ │
                     │   │ 1. BERT Phishing Model  │ │ ← NEW: ML Classifier
-                    │   │    (95% accuracy)       │ │
+                    │   │    (88.8% F1-Score)     │ │
                     │   └─────────────────────────┘ │
                     │   ┌─────────────────────────┐ │
                     │   │ 2. Regex Rules (11)     │ │
@@ -54,10 +54,10 @@ Phân tích ngữ nghĩa (semantic analysis) các file `.eml` nghi ngờ để p
 **NEW: ML-based Classification**
 - **BERT Phishing Classifier** (DistilBERT fine-tuned)
   - Model: `ealvaradob/bert-finetuned-phishing` (HuggingFace)
-  - Accuracy: ~95% trên benchmark datasets
-  - Inference: ~50-100ms trên CPU
-  - Hiểu ngữ cảnh tốt hơn regex (semantic understanding)
-  - Giảm 60% false positives so với pure regex
+  - F1-Score: 88.8% on CEAS-08 benchmark (39K emails, threshold 0.7)
+  - Precision: 89.7% | Recall: 88.8% (weighted avg)
+  - Inference: ~50-100ms on CPU
+  - Semantic understanding — significantly better than pure regex
 
 **Hybrid Decision Logic**:
 1. Chạy BERT classifier → phishing_score (0.0 - 1.0)

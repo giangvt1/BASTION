@@ -37,7 +37,7 @@ class BastionConfig:
         default_factory=lambda: os.getenv("GEMINI_API_KEY", "")
     )
     gemini_model: str = field(
-        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        default_factory=lambda: os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
     )
     gemini_max_tokens: int = field(
         default_factory=lambda: int(os.getenv("GEMINI_MAX_TOKENS", "8192"))
