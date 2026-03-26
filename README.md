@@ -307,6 +307,8 @@ notebooks/
 
 ---
 
+Deployment Url: https://main.dees6ffaimygn.amplifyapp.com/
+
 ## Team
 
 - Vu Truong Giang — Team Leader
