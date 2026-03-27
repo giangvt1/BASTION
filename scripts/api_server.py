@@ -38,13 +38,35 @@ logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
 app = FastAPI(title="BASTION Local API")
 
 # Enable CORS for the React frontend
+# NOTE: allow_credentials=True is incompatible with allow_origins=["*"] per CORS spec.
+# Use explicit origins instead.
+ALLOWED_ORIGINS = [
+    "https://main.dees6ffaimygn.amplifyapp.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+@app.options("/{rest_of_path:path}")
+async def preflight_handler(rest_of_path: str):
+    """Explicit OPTIONS catch-all to ensure ngrok passes preflight through."""
+    from fastapi.responses import Response
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "https://main.dees6ffaimygn.amplifyapp.com",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Max-Age": "86400",
+        },
+    )
 
 # In-memory store for local testing instead of DynamoDB
 reports_db: Dict[str, Any] = {}
