@@ -1,11 +1,17 @@
 import type { Report, TraceEvent, GraphNodeStatus } from '../types';
 
-// Helper for API requests — no custom headers on GET (avoids CORS preflight)
+// Helper for API requests
 const apiFetch = (url: string, options: RequestInit = {}) => {
   const isFormData = options.body instanceof FormData;
   const method = (options.method || 'GET').toUpperCase();
   const needsJson = !isFormData && method !== 'GET' && method !== 'HEAD';
-  return fetch(url, {
+
+  // Append query param to bypass ngrok interstitial (doesn't trigger CORS preflight unlike a header)
+  const finalUrl = url.includes('ngrok')
+    ? url + (url.includes('?') ? '&' : '?') + 'ngrok-skip-browser-warning=1'
+    : url;
+
+  return fetch(finalUrl, {
     ...options,
     headers: {
       ...(needsJson ? { 'Content-Type': 'application/json' } : {}),
@@ -13,6 +19,7 @@ const apiFetch = (url: string, options: RequestInit = {}) => {
     },
   });
 };
+
 
 export const fetchReports = async (): Promise<{ reports: Report[], count: number }> => {
   try {
