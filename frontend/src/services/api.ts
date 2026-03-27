@@ -1,29 +1,23 @@
 import type { Report, TraceEvent, GraphNodeStatus } from '../types';
 
-// Helper for API requests
+// Helper to bypass ngrok browser warning interception
 const apiFetch = (url: string, options: RequestInit = {}) => {
   const isFormData = options.body instanceof FormData;
-  const method = (options.method || 'GET').toUpperCase();
-  const needsJson = !isFormData && method !== 'GET' && method !== 'HEAD';
-
   return fetch(url, {
     ...options,
     headers: {
-      // Accept is a CORS-safe header — does NOT trigger preflight
-      // AND ngrok detects it as an API client, skipping its HTML interstitial
-      'Accept': 'application/json',
-      ...(needsJson ? { 'Content-Type': 'application/json' } : {}),
+      'ngrok-skip-browser-warning': 'true',
+      // Don't set Content-Type for FormData — browser sets it with boundary automatically
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers || {}),
     },
   });
 };
 
-
-
-export const fetchReports = async (): Promise<{ reports: Report[], count: number }> => {
+export const fetchReports = async (): Promise<{reports: Report[], count: number}> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-
+    
     const response = await apiFetch(`${API_URL}/reports`);
     if (!response.ok) throw new Error("Failed to fetch reports");
     const data = await response.json();
@@ -37,7 +31,7 @@ export const fetchReports = async (): Promise<{ reports: Report[], count: number
 export const fetchReport = async (id: string): Promise<Report | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
-
+    
     const response = await apiFetch(`${API_URL}/reports/${id}`);
     if (!response.ok) throw new Error("Failed to fetch report");
     const data = await response.json();
@@ -62,7 +56,7 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
   if (!report) return [];
 
   const traces: TraceEvent[] = [];
-
+  
   if (report.event_type) {
     traces.push({
       id: 'ingest',
@@ -78,7 +72,7 @@ export const fetchTraces = async (): Promise<TraceEvent[]> => {
     report.messages.forEach((msg: any, idx: number) => {
       let source = 'Agent';
       let content = msg.content || '';
-
+      
       if (content.startsWith('[')) {
         const endBracket = content.indexOf(']');
         if (endBracket !== -1) {
@@ -141,19 +135,19 @@ export const fetchAgentLogs = async (agentId: string | null): Promise<any[]> => 
   if (!agentId) return [];
   const report: any = await fetchLatestReport();
   if (!report || !report.pipeline_logs) return [];
-
+  
   const nodeLogMap: Record<string, string[]> = {
     'supervisor': ['supervisor'],
     'email': ['email_analyst'],
     'forensic': ['forensic_analyst'],
     'threat': ['threat_intel'],
   };
-
+  
   const matchNodes = nodeLogMap[agentId] || [agentId];
   return report.pipeline_logs.filter((log: any) => matchNodes.includes(log.node));
 };
 
-export const triggerAnalysis = async (eventType: string): Promise<{ message: string, report_id: string } | null> => {
+export const triggerAnalysis = async (eventType: string): Promise<{message: string, report_id: string} | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     const response = await apiFetch(`${API_URL}/trigger/${eventType}`, { method: 'POST' });
@@ -177,7 +171,7 @@ export const fetchStats = async (): Promise<any> => {
   }
 };
 
-export const uploadFile = async (file: File): Promise<{ message: string, report_id: string, event_type: string } | null> => {
+export const uploadFile = async (file: File): Promise<{message: string, report_id: string, event_type: string} | null> => {
   try {
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8001';
     const formData = new FormData();
@@ -193,7 +187,7 @@ export const uploadFile = async (file: File): Promise<{ message: string, report_
 
 export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
   const report = await fetchLatestReport();
-
+  
   const defaultNodes: GraphNodeStatus[] = [
     { id: 'supervisor', name: 'Supervisor', status: 'idle', type: 'supervisor', icon: 'psychology', message: 'Orchestrator' },
     { id: 'email', name: 'Email Analyst', status: 'idle', type: 'agent', icon: 'mail', message: 'Ready' },
@@ -205,7 +199,7 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
 
   const isRunning = report.status === 'running';
   const agentsUsed = new Set(report.findings?.map((f: any) => f.agent));
-
+  
   // Track the most recent delegation to highlight the active agent
   let currentActiveAgent = '';
   if (isRunning && report.messages && report.messages.length > 0) {
@@ -216,16 +210,16 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
     else if (content.includes('DELEGATE_THREAT')) currentActiveAgent = 'threat';
     else if (content.includes('SYNTHESIZE')) currentActiveAgent = 'synthesis';
   }
-
+  
   return defaultNodes.map(node => {
     if (node.id === 'supervisor') {
       if (report.final_report) return { ...node, status: 'completed', message: 'Synthesis complete' };
       if (isRunning && (!currentActiveAgent || currentActiveAgent === 'synthesis')) {
-        return { ...node, status: 'running', message: `Thinking...` };
+         return { ...node, status: 'running', message: `Thinking...` };
       }
       return { ...node, status: isRunning ? 'idle' : 'completed', message: `Iterations: ${report.iteration_count || 0}` };
     }
-
+    
     let agentKey = '';
     if (node.id === 'email') { agentKey = 'email_analyst'; }
     if (node.id === 'forensic') { agentKey = 'forensic_analyst'; }
@@ -235,10 +229,10 @@ export const fetchNodes = async (): Promise<GraphNodeStatus[]> => {
       return { ...node, status: 'running', message: 'Analyzing...' };
     }
 
-    if (agentsUsed.has(agentKey) || (node.id === 'threat' && report.findings?.some((f: any) => f.agent === 'threat_intel'))) {
+    if (agentsUsed.has(agentKey) || (node.id === 'threat' && report.findings?.some((f:any) => f.agent === 'threat_intel'))) {
       return { ...node, status: 'completed', message: 'Analysis complete' };
     }
-
+    
     return node;
   });
 };

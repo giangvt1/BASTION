@@ -101,27 +101,3 @@ def get_logger(name: str) -> structlog.stdlib.BoundLogger:
         A structlog BoundLogger instance.
     """
     return structlog.get_logger(name)
-
-
-def make_log(node: str, action: str, detail: str, status: str = "ok") -> dict:
-    """
-    Create a structured pipeline_log entry for UI log streaming.
-
-    Args:
-        node:   Agent/node name (e.g. "email_analyst", "supervisor").
-        action: Short label for the step (e.g. "Tier 1: Static Filter").
-        detail: Human-readable detail string with key values.
-        status: One of "running" | "ok" | "warn" | "error".
-                Used by the frontend to colour-code each entry.
-
-    Returns:
-        Dict with keys: node, action, detail, status, ts.
-    """
-    from datetime import datetime, timezone
-    return {
-        "node": node,
-        "action": action,
-        "detail": detail,
-        "status": status,
-        "ts": datetime.now(timezone.utc).isoformat(),
-    }

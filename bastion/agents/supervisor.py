@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from bastion.logger import get_logger, make_log
+from bastion.logger import get_logger
 from bastion.models.state import BastionState
 
 logger = get_logger(__name__)
@@ -73,11 +73,7 @@ def supervisor_node(state: BastionState) -> dict:
         return {
             "next_agent": "SYNTHESIZE",
             "iteration_count": iteration + 1,
-            "pipeline_logs": [
-                make_log("supervisor", "⚠️ Max Iterations Reached",
-                    f"Forced SYNTHESIZE after {MAX_ITERATIONS} iterations to prevent infinite loop.",
-                    status="warn"),
-            ],
+            "pipeline_logs": [{"node": "supervisor", "action": "Max iterations reached", "detail": f"Forced SYNTHESIZE after {MAX_ITERATIONS} iterations", "ts": ts}],
         }
 
     # ── Track which agents have already produced findings ──
@@ -135,26 +131,8 @@ def supervisor_node(state: BastionState) -> dict:
     
     # Fallback: use LLM for edge cases
     else:
-        pipe_log_llm = make_log("supervisor", "🧠 Supervisor: Using LLM Routing Fallback",
-            "Non-standard event flow — falling back to Gemini for routing decision.",
-            status="running")
         decision = _llm_routing_fallback(state, log, ts)
-        reason = "Non-standard flow — LLM routing used"
-        return {
-            "next_agent": decision,
-            "iteration_count": iteration + 1,
-            "messages": [AIMessage(content=f"[Supervisor] Routing -> {decision}")],
-            "pipeline_logs": [
-                make_log("supervisor", f"📡 Supervisor: Evaluating State (Iter {iteration + 1})",
-                    f"Agents done: Email={email_done} | Forensic={forensic_done} | ThreatIntel={threat_done} | "
-                    f"Findings: {len(findings)} | IOCs: {len(state.get('iocs', []))} | "
-                    f"NetworkEvents: {has_network_events}",
-                    status="running"),
-                pipe_log_llm,
-                make_log("supervisor", f"➡️ Supervisor: Routing → {decision}",
-                    f"{reason}.", status="ok"),
-            ],
-        }
+        reason = "Non-standard flow — using LLM routing"
 
     log.info("supervisor.decision", decision=decision, reason=reason)
 
@@ -163,13 +141,8 @@ def supervisor_node(state: BastionState) -> dict:
         "iteration_count": iteration + 1,
         "messages": [AIMessage(content=f"[Supervisor] Routing -> {decision}")],
         "pipeline_logs": [
-            make_log("supervisor", f"📡 Supervisor: Evaluating State (Iter {iteration + 1})",
-                f"Agents done: Email={email_done} | Forensic={forensic_done} | ThreatIntel={threat_done} | "
-                f"Findings: {len(findings)} | IOCs: {len(state.get('iocs', []))} | "
-                f"NetworkEvents: {has_network_events}",
-                status="running"),
-            make_log("supervisor", f"➡️ Supervisor: Routing → {decision}",
-                f"{reason}.", status="ok"),
+            {"node": "supervisor", "action": "Evaluating state", "detail": f"Iteration {iteration}: E:{email_done} F:{forensic_done} T:{threat_done} | {len(findings)} findings, {len(state.get('iocs', []))} IOCs", "ts": ts},
+            {"node": "supervisor", "action": f"Routing → {decision}", "detail": reason, "ts": ts},
         ],
     }
 
