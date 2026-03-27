@@ -3,6 +3,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { Header } from '../components/Header';
+import { LogStream } from '../components/LogStream';
+import type { PipelineLog } from '../components/LogStream';
 import { fetchLatestReport, fetchNodes, fetchTraces, triggerAnalysis, uploadFile, submitFeedback, pushSigmaRule } from '../services/api';
 import type { Report, GraphNodeStatus, TraceEvent } from '../types';
 
@@ -754,28 +756,19 @@ export default function SOCDashboard() {
 
           {/* Right Sidebar */}
           <div className="lg:col-span-4 space-y-6">
-            {/* Alert Feed */}
-            <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
-                <h4 className="font-bold text-sm">Findings</h4>
-                <Link to="/orchestrator" className="text-xs text-primary font-bold hover:underline">See Details</Link>
+            {/* Log Stream — replaces static Findings */}
+            <div>
+              <div className="flex items-center justify-between mb-2 px-1">
+                <h4 className="font-bold text-sm flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-primary text-base">terminal</span>
+                  Pipeline Logs
+                </h4>
               </div>
-              <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-64 overflow-y-auto">
-                {report?.findings && report.findings.length > 0 ? report.findings.map((f, i) => (
-                  <div key={i} className="p-4 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors cursor-pointer group">
-                    <div className="flex gap-3">
-                      <span className={`size-2 rounded-full mt-1.5 group-hover:scale-125 transition-transform ${String(f.severity).toLowerCase() === 'high' || String(f.severity).toLowerCase() === 'critical' ? 'bg-red-500' : 'bg-orange-500'}`}></span>
-                      <div className="flex-1">
-                        <p className="text-sm font-bold text-slate-800 dark:text-slate-200 group-hover:text-primary transition-colors">{f.finding_type || f.mitre_tactic || 'Security Finding'}</p>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{f.description}</p>
-                        <p className="text-[10px] text-slate-400 mt-2 font-medium bg-slate-100 dark:bg-slate-800 inline-block px-2 py-0.5 rounded">Detected by {f.agent}</p>
-                      </div>
-                    </div>
-                  </div>
-                )) : (
-                  <div className="p-4 text-center text-sm text-slate-500">No active findings</div>
-                )}
-              </div>
+              <LogStream
+                logs={((report as any)?.pipeline_logs || []) as PipelineLog[]}
+                compact={true}
+                title="Pipeline Activity"
+              />
             </div>
 
             {/* Agent Status List */}

@@ -22,7 +22,7 @@ from bastion.agents.forensic_analyst.tools import (
     mitre_attack_vector_tool,
     shared_state_lookup_tool,
 )
-from bastion.logger import get_logger
+from bastion.logger import get_logger, make_log
 from bastion.models.state import BastionState
 
 logger = get_logger(__name__)
@@ -52,12 +52,28 @@ def forensic_analyst_node(state: BastionState) -> dict:
 
     event_payload = state.get("event_payload", {})
     now = datetime.now(timezone.utc).isoformat()
+    pipe_logs: list[dict] = []
 
-    # ── Extract log context from payload ────────────────────────────────
+    # ── Extract log context from payload ──────────────────────────────────
     context_data = _extract_log_context(event_payload)
     context_logs = context_data.get("context_logs", {})
     user = context_data.get("user", "")
     anomaly_trigger = context_data.get("anomaly_trigger", "")
+    records = context_logs.get("Records", [])
+
+    # Detect data source type for display
+    has_vpcflow = any(
+        r.get("datasource") == "vpcflow" or r.get("eventSource") == "vpc-flow-logs.amazonaws.com"
+        for r in records if isinstance(r, dict)
+    )
+    datasource_label = "VPC Flow Logs" if has_vpcflow else "CloudTrail Logs"
+
+    pipe_logs.append(make_log(
+        "forensic_analyst", "🔍 Forensic Analyst Started",
+        f"User: {user or '(unknown)'} | Trigger: {anomaly_trigger[:100] or '(none)'} | "
+        f"Records: {len(records)} | Datasource: {datasource_label}",
+        status="running",
+    ))
 
     log.info(
         "forensic_analyst.context_extracted",
@@ -66,12 +82,36 @@ def forensic_analyst_node(state: BastionState) -> dict:
         trigger=anomaly_trigger[:100],
     )
 
-    # ── Tier 1: Anomaly Detection ───────────────────────────────────────
+    # ── Tier 1: Anomaly Detection ───────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "forensic_analyst", "⚙️ Tier 1: Anomaly Detection Running",
+        f"Applying rule-based checks + Isolation Forest + LSTM UBA on {len(records)} records...",
+        status="running",
+    ))
     tier1_result = run_anomaly_filter(context_logs, user)
 
     if tier1_result.decision == "NORMAL":
         log.info("forensic_analyst.tier1_normal", anomaly_score=tier1_result.anomaly_score)
-        return _build_clean_response(tier1_result, now)
+        pipe_logs.append(make_log(
+            "forensic_analyst", "✅ Tier 1: NORMAL — No Anomalies Detected",
+            f"Combined anomaly score: {tier1_result.anomaly_score:.3f}. "
+            f"No suspicious patterns in {len(records)} {datasource_label} records. "
+            f"Skipping Tier 2 (no LLM cost).",
+            status="ok",
+        ))
+        result = _build_clean_response(tier1_result, now)
+        result.setdefault("pipeline_logs", [])
+        result["pipeline_logs"] = pipe_logs + result["pipeline_logs"]
+        return result
+
+    pipe_logs.append(make_log(
+        "forensic_analyst", "⚠️ Tier 1: ANOMALY DETECTED — Escalating to Tier 2",
+        f"Combined score: {tier1_result.anomaly_score:.3f}. "
+        f"Rule matches: {', '.join(tier1_result.rule_matches[:4])}{'...' if len(tier1_result.rule_matches) > 4 else ''}. "
+        f"Flagged events: {len(tier1_result.flagged_events)}. "
+        f"Source IPs: {tier1_result.source_ips}.",
+        status="warn",
+    ))
 
     log.info(
         "forensic_analyst.tier1_anomaly",
@@ -81,15 +121,39 @@ def forensic_analyst_node(state: BastionState) -> dict:
     )
 
     # ── Tier 2: ReAct Agent ─────────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "forensic_analyst", "🤖 Tier 2: Gemini ReAct Forensic Agent Starting",
+        f"Tools: cloudtrail_query, mitre_attack_vector, shared_state_lookup. "
+        f"Existing IOCs: {len(state.get('iocs', []))}. Max steps: {MAX_REACT_STEPS}.",
+        status="running",
+    ))
     try:
         analysis = _run_react_agent(
             context_logs, user, anomaly_trigger, tier1_result, state, log
         )
+        pipe_logs.append(make_log(
+            "forensic_analyst", "✅ Tier 2: Forensic Investigation Complete",
+            f"Verdict: {analysis.status} | Confidence: {analysis.confidence_score:.0%} | "
+            f"Kill-chain: {' → '.join(analysis.kill_chain_identified) if analysis.kill_chain_identified else 'N/A'} | "
+            f"MITRE: {', '.join(analysis.mitre_tactics) or 'N/A'}.",
+            status="ok" if analysis.status in ("CLEAN", "LOW_RISK") else "warn",
+        ))
     except Exception:
         log.exception("forensic_analyst.react_error")
+        pipe_logs.append(make_log(
+            "forensic_analyst", "❌ Tier 2: Forensic Agent Error",
+            "ReAct agent raised an exception. Falling back to rule-based analysis.",
+            status="error",
+        ))
         analysis = _build_fallback_analysis(tier1_result)
 
-    # ── Sigma Rule Generation ───────────────────────────────────────────
+    # ── Sigma Rule Generation ───────────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "forensic_analyst", "📝 Generating Sigma Detection Rule",
+        f"Building YAML Sigma rule from {datasource_label} patterns "
+        f"(flagged events: {len(tier1_result.flagged_events)}, source IPs: {tier1_result.source_ips})...",
+        status="running",
+    ))
     try:
         sigma_rule = generate_sigma_rule(
             analysis,
@@ -99,11 +163,24 @@ def forensic_analyst_node(state: BastionState) -> dict:
         )
         analysis.generated_sigma_rule = sigma_rule
         log.info("forensic_analyst.sigma_generated", rule_length=len(sigma_rule))
+        pipe_logs.append(make_log(
+            "forensic_analyst", "✅ Sigma Rule Generated",
+            f"Rule length: {len(sigma_rule)} chars. Logsource: {datasource_label.lower()}.",
+            status="ok",
+        ))
     except Exception:
         log.exception("forensic_analyst.sigma_error")
+        pipe_logs.append(make_log(
+            "forensic_analyst", "❌ Sigma Rule Generation Failed",
+            "Exception during Sigma rule generation. Skipping rule.",
+            status="error",
+        ))
 
     # ── Build state updates ─────────────────────────────────────────────
-    return _build_response(analysis, tier1_result, now)
+    result = _build_response(analysis, tier1_result, now)
+    result.setdefault("pipeline_logs", [])
+    result["pipeline_logs"] = pipe_logs + result["pipeline_logs"]
+    return result
 
 
 # ── Helper: extract log context from various payload formats ────────────

@@ -1,18 +1,27 @@
 import { useEffect, useState } from 'react';
 import type { TraceEvent } from '../types';
-import { fetchTraces, fetchAgentLogs } from '../services/api';
+import { fetchTraces, fetchAgentLogs, fetchLatestReport } from '../services/api';
+import { LogStream } from './LogStream';
+import type { PipelineLog } from './LogStream';
 
 export const RightPanel = ({ selectedAgentId, onClearSelection }: { selectedAgentId?: string | null, onClearSelection?: () => void }) => {
   const [traces, setTraces] = useState<TraceEvent[]>([]);
   const [agentLogs, setAgentLogs] = useState<any[]>([]);
+  const [pipelineLogs, setPipelineLogs] = useState<PipelineLog[]>([]);
 
   useEffect(() => {
     fetchTraces().then(setTraces);
+    fetchLatestReport().then((r: any) => {
+      if (r?.pipeline_logs) setPipelineLogs(r.pipeline_logs);
+    });
     if (selectedAgentId) {
         fetchAgentLogs(selectedAgentId).then(setAgentLogs);
     }
     const interval = setInterval(() => {
       fetchTraces().then(setTraces);
+      fetchLatestReport().then((r: any) => {
+        if (r?.pipeline_logs) setPipelineLogs(r.pipeline_logs);
+      });
       if (selectedAgentId) {
           fetchAgentLogs(selectedAgentId).then(setAgentLogs);
       }
@@ -70,29 +79,18 @@ export const RightPanel = ({ selectedAgentId, onClearSelection }: { selectedAgen
         </div>
       ) : (
         <>
+          {/* LogStream — replaces Sequence Flow */}
           <div>
-            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Sequence Flow</h4>
-            <div className="space-y-6 relative before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-slate-200 dark:before:bg-primary/20">
-              
-              {traces.map((trace, idx) => (
-                <div key={trace.id} className="flex gap-4 relative">
-                  <div className={`size-6 rounded-full flex items-center justify-center z-10 ${
-                    idx === 0 
-                      ? 'bg-primary text-white' 
-                      : 'bg-slate-200 dark:bg-primary/20 text-primary'
-                  }`}>
-                    <span className="material-symbols-outlined text-[14px]">
-                      {getIconForType(trace.type)}
-                    </span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-bold text-slate-800 dark:text-slate-200">{trace.description}</p>
-                    <p className="text-xs text-slate-500">{trace.source} → {trace.target}</p>
-                  </div>
-                </div>
-              ))}
-
-            </div>
+            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+              <span className="material-symbols-outlined text-emerald-400 text-base">terminal</span>
+              Pipeline Logs
+            </h4>
+            <LogStream
+              logs={pipelineLogs}
+              compact={false}
+              title="Live Stream"
+              maxVisible={8}
+            />
           </div>
           
           <div className="border-t border-slate-200 dark:border-primary/10 pt-6 mt-auto">

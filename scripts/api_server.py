@@ -235,7 +235,17 @@ def run_agent_task(report_id: str, event_type: str):
     except Exception as e:
         logger.exception("Graph execution failed")
         _duration = round(time.time() - _start_time, 2)
-        reports_db[report_id] = {"error": str(e), "status": "failed", "processing_time_seconds": _duration}
+        # Preserve pipeline_logs accumulated so far — don't overwrite with empty dict
+        existing_logs = reports_db.get(report_id, {}).get("pipeline_logs", [])
+        from bastion.logger import make_log
+        existing_logs.append(make_log("system", "Pipeline Failed", str(e), "error"))
+        reports_db[report_id] = {
+            **reports_db.get(report_id, {}),
+            "error": str(e),
+            "status": "failed",
+            "processing_time_seconds": _duration,
+            "pipeline_logs": existing_logs,
+        }
         _consecutive_failures += 1
         if _consecutive_failures >= CIRCUIT_BREAKER_THRESHOLD:
             _circuit_open_until = time.time() + CIRCUIT_BREAKER_COOLDOWN
@@ -316,7 +326,15 @@ def run_upload_task(report_id: str, event: dict):
         logger.info(f"Finished graph for uploaded report {report_id}")
     except Exception as e:
         logger.exception("Upload graph execution failed")
-        reports_db[report_id] = {"error": str(e), "status": "failed"}
+        existing_logs = reports_db.get(report_id, {}).get("pipeline_logs", [])
+        from bastion.logger import make_log
+        existing_logs.append(make_log("system", "Pipeline Failed", str(e), "error"))
+        reports_db[report_id] = {
+            **reports_db.get(report_id, {}),
+            "error": str(e),
+            "status": "failed",
+            "pipeline_logs": existing_logs,
+        }
 
 # ── AWS SQS Hybrid Poller ──
 async def sqs_poller_task():
@@ -553,6 +571,7 @@ async def upload_file(request: Request, background_tasks: BackgroundTasks, file:
         "status": "running",
         "findings": [], "iocs": [], "error_logs": [], "messages": [],
         "iteration_count": 0, "risk_score": 0.0, "final_report": "",
+        "pipeline_logs": [{"node": "eventbridge", "action": "File uploaded", "detail": f"Incident response file uploaded for {event['event_type']} analysis (type: .{ext})", "ts": __import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()}],
     }
     background_tasks.add_task(run_upload_task, report_id, event)
     return {"message": f"Incident Response triggered for {filename}", "report_id": report_id, "event_type": event["event_type"]}

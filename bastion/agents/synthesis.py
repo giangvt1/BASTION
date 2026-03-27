@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 from langchain_core.messages import AIMessage
 
-from bastion.logger import get_logger
+from bastion.logger import get_logger, make_log
 from bastion.models.state import BastionState
 
 logger = get_logger(__name__)
@@ -26,7 +26,7 @@ You are an elite Lead Incident Responder of the BASTION Autonomous SOC.
 Your job is to read all findings, IOCs, and forensic results collected by your sub-agents,
 and synthesize them into a highly professional, structured Executive Markdown Report.
 
-## EVIDENCE DISCIPLINE — MANDATORY RULES
+## EVIDENCE DISCIPLINE â€” MANDATORY RULES
 
 1. **Observed vs Assessed**: Every claim MUST be traceable to a specific field in the input data.
    - "Observed" = directly present in the data (log field, email header, network flow, API event).
@@ -38,9 +38,9 @@ and synthesize them into a highly professional, structured Executive Markdown Re
 
 3. **Datasource fidelity**: 
    - Only make claims that the actual datasource type can support:
-     * VPC Flow Logs → connection attempts, src/dst IPs, ports, protocols, accept/reject. CANNOT prove authentication, API calls, user identity.
-     * CloudTrail → API calls, user identity, auth events, resource access. CANNOT prove network-layer connections.
-     * Email → sender, subject, body, headers, URLs. CANNOT prove whether a URL was clicked or payload executed.
+     * VPC Flow Logs â†’ connection attempts, src/dst IPs, ports, protocols, accept/reject. CANNOT prove authentication, API calls, user identity.
+     * CloudTrail â†’ API calls, user identity, auth events, resource access. CANNOT prove network-layer connections.
+     * Email â†’ sender, subject, body, headers, URLs. CANNOT prove whether a URL was clicked or payload executed.
    - Rejected/blocked events = "rejected connection attempts" or "blocked suspicious activity". NEVER "exploitation" (exploitation requires successful execution, which rejection disproves).
    - If correlated events exist across datasources (e.g., same IP in email and network logs), acknowledge the correlation explicitly.
 
@@ -67,12 +67,12 @@ and synthesize them into a highly professional, structured Executive Markdown Re
 
 8. **MITRE ATT&CK taxonomy**:
    - Use ONLY current, non-deprecated technique IDs.
-   - Deprecated IDs to avoid: T1192→T1566.002, T1193→T1566.001, T1194→T1566.003, T1064→T1059, T1015→T1546.008.
+   - Deprecated IDs to avoid: T1192â†’T1566.002, T1193â†’T1566.001, T1194â†’T1566.003, T1064â†’T1059, T1015â†’T1546.008.
    - Match technique to what the evidence actually shows, not what you infer the attacker intended.
 
 ## REPORT STRUCTURE
 
-# 🛡️ BASTION Security Incident Report
+# ðŸ›¡ï¸ BASTION Security Incident Report
 **Incident Window:** INCIDENT_WINDOW_PLACEHOLDER | **Verdict:** [CRITICAL COMPROMISE / HIGH RISK / MEDIUM RISK / FALSE POSITIVE]
 
 ## 1. Executive Summary
@@ -213,125 +213,112 @@ def _check_enrichment_status(state: BastionState) -> str:
     return "NOT_PERFORMED"
 
 
+
 def synthesis_node(state: BastionState) -> dict:
     """Synthesis node for LangGraph."""
     log = logger.bind(agent="synthesis", event_type=state.get("event_type"))
     log.info("synthesis.start")
-    ts_now = datetime.now(timezone.utc).isoformat()
+    pipe_logs: list[dict] = []
 
     findings = state.get("findings", [])
     iocs = state.get("iocs", [])
 
+    pipe_logs.append(make_log(
+        "synthesis", "📊 Synthesis Agent Started",
+        f"Aggregating: {len(findings)} finding(s) from "
+        f"{', '.join(sorted(set(f.get('agent','?') for f in findings))) or 'none'} | "
+        f"{len(iocs)} IOC(s).",
+        status="running",
+    ))
+
     if not findings and not iocs:
+        pipe_logs.append(make_log(
+            "synthesis", "✅ Synthesis Complete — No Findings",
+            "No significant findings or IOCs detected. Event appears benign.",
+            status="ok",
+        ))
         return {
             "final_report": "No significant findings or anomalies detected during analysis.",
             "messages": [AIMessage(content="[Synthesis] No findings to report.")],
-            "pipeline_logs": [{"node": "synthesis", "action": "Analysis complete", "detail": "No significant findings or IOCs detected. Event appears benign.", "ts": ts_now}],
+            "pipeline_logs": pipe_logs,
         }
 
-    # Extract real metadata from state
     ts_earliest, ts_latest = _extract_incident_timestamp(state)
-    if ts_earliest == ts_latest:
-        incident_window = ts_earliest
-    else:
-        incident_window = f"{ts_earliest} – {ts_latest}"
+    incident_window = ts_earliest if ts_earliest == ts_latest else f"{ts_earliest} – {ts_latest}"
     datasource_types = _detect_datasource_types(state)
     enrichment_status = _check_enrichment_status(state)
 
-    log.info(
-        "synthesis.metadata",
-        incident_window=incident_window,
-        datasources=datasource_types,
-        enrichment=enrichment_status,
-    )
+    pipe_logs.append(make_log(
+        "synthesis", "🗓️ Incident Metadata Extracted",
+        f"Incident window: {incident_window} | Datasources: {', '.join(datasource_types)} | Enrichment: {enrichment_status}.",
+        status="ok",
+    ))
+    log.info("synthesis.metadata", incident_window=incident_window, datasources=datasource_types, enrichment=enrichment_status)
+
+    final_report = "Error generating final synthesis report."
+    risk_score = 0.5
 
     try:
-        # Build context with real metadata injected
         metadata_block = (
-            f"=== INCIDENT METADATA (use these values, do NOT invent) ===\n"
-            f"INCIDENT_WINDOW: {incident_window}\n"
-            f"ACTUAL_DATASOURCES: {', '.join(datasource_types)}\n"
-            f"ENRICHMENT_STATUS: {enrichment_status}\n"
-            f"TOTAL_FINDINGS: {len(findings)}\n"
-            f"TOTAL_IOCS: {len(iocs)}\n"
-            f"=== END METADATA ===\n\n"
+            f"=== INCIDENT METADATA ===\nINCIDENT_WINDOW: {incident_window}\n"
+            f"ACTUAL_DATASOURCES: {', '.join(datasource_types)}\nENRICHMENT_STATUS: {enrichment_status}\n"
+            f"TOTAL_FINDINGS: {len(findings)}\nTOTAL_IOCS: {len(iocs)}\n=== END METADATA ===\n\n"
         )
-
         user_message = (
-            f"{metadata_block}"
-            f"Please synthesize the following security findings into a final report:\n\n"
-            f"Findings: {findings}\n\n"
-            f"IOCs: {iocs}"
+            f"{metadata_block}Please synthesize the following security findings into a final report:\n\n"
+            f"Findings: {findings}\n\nIOCs: {iocs}"
         )
 
         from bastion.services.gemini import call_gemini
 
-        final_report = call_gemini(
-            prompt=user_message,
-            system_prompt=SYNTHESIS_SYSTEM_PROMPT,
-        )
+        pipe_logs.append(make_log(
+            "synthesis", "🤖 Generating Executive Report via Gemini",
+            f"Sending {len(findings)} finding(s) and {len(iocs)} IOC(s) to Gemini. Datasources: {', '.join(datasource_types)}.",
+            status="running",
+        ))
 
-        # Post-process: inject real incident window (in case LLM ignored our instruction)
-        final_report = final_report.replace(
-            "INCIDENT_WINDOW_PLACEHOLDER", incident_window
-        )
+        final_report = call_gemini(prompt=user_message, system_prompt=SYNTHESIS_SYSTEM_PROMPT)
+        final_report = final_report.replace("INCIDENT_WINDOW_PLACEHOLDER", incident_window)
 
-        # ── Claim Validator: deterministic policy gate ──────────────────
-        from bastion.services.report_validator import (
-            validate_report,
-            format_violations_for_repair,
-        )
+        from bastion.services.report_validator import validate_report, format_violations_for_repair
 
-        validation = validate_report(
-            report=final_report,
-            datasources=datasource_types,
-            enrichment_status=enrichment_status,
-        )
-        final_report = validation.report  # Apply auto-fixes
+        pipe_logs.append(make_log("synthesis", "🔎 Claim Validator Running",
+            "Checking report for hallucinations, deprecated MITRE IDs, datasource mismatches...", status="running"))
 
-        log.info(
-            "synthesis.validation",
-            total_violations=len(validation.violations),
-            auto_fixed=validation.auto_fixed,
-            has_remaining_errors=validation.has_errors,
-        )
+        validation = validate_report(report=final_report, datasources=datasource_types, enrichment_status=enrichment_status)
+        final_report = validation.report
 
-        # If unfixed ERROR violations remain, do one repair pass
+        log.info("synthesis.validation", total_violations=len(validation.violations),
+                 auto_fixed=validation.auto_fixed, has_remaining_errors=validation.has_errors)
+
+        pipe_logs.append(make_log(
+            "synthesis",
+            "✅ Claim Validator Complete" if not validation.has_errors else "⚠️ Claim Validator: Errors Found",
+            f"{len(validation.violations)} violation(s). Auto-fixed: {validation.auto_fixed}. "
+            f"Remaining errors: {'yes' if validation.has_errors else 'none'}.",
+            status="ok" if not validation.has_errors else "warn",
+        ))
+
         if validation.has_errors:
             repair_instructions = format_violations_for_repair(validation.violations)
             if repair_instructions:
                 log.info("synthesis.repair_pass", unfixed_errors=repair_instructions.count("\n"))
+                pipe_logs.append(make_log("synthesis", "🔧 Repair Pass: Re-writing Report",
+                    f"Fixing {repair_instructions.count(chr(10))} policy violation(s)...", status="warn"))
                 repair_prompt = (
-                    f"Your draft report has the following policy violations. "
-                    f"Rewrite the report fixing ONLY these issues. "
-                    f"Keep everything else exactly the same.\n\n"
-                    f"{repair_instructions}\n\n"
-                    f"=== DRAFT REPORT ===\n{final_report}"
+                    f"Your draft report has the following policy violations. Rewrite fixing ONLY these issues.\n\n"
+                    f"{repair_instructions}\n\n=== DRAFT REPORT ===\n{final_report}"
                 )
-                final_report = call_gemini(
-                    prompt=repair_prompt,
-                    system_prompt=SYNTHESIS_SYSTEM_PROMPT,
-                )
-                # Re-inject incident window after repair
-                final_report = final_report.replace(
-                    "INCIDENT_WINDOW_PLACEHOLDER", incident_window
-                )
-                # Re-validate (log only, no further repair)
-                repair_validation = validate_report(
-                    report=final_report,
-                    datasources=datasource_types,
-                    enrichment_status=enrichment_status,
-                )
+                final_report = call_gemini(prompt=repair_prompt, system_prompt=SYNTHESIS_SYSTEM_PROMPT)
+                final_report = final_report.replace("INCIDENT_WINDOW_PLACEHOLDER", incident_window)
+                repair_validation = validate_report(report=final_report, datasources=datasource_types, enrichment_status=enrichment_status)
                 final_report = repair_validation.report
-                log.info(
-                    "synthesis.repair_validation",
-                    remaining_violations=len(repair_validation.violations),
-                    remaining_errors=sum(1 for v in repair_validation.violations if v.severity == "ERROR"),
-                )
+                log.info("synthesis.repair_validation",
+                         remaining_violations=len(repair_validation.violations),
+                         remaining_errors=sum(1 for v in repair_validation.violations if v.severity == "ERROR"))
 
         log.info("synthesis.complete", report_length=len(final_report))
 
-        # Calculate risk score
         score = 0.0
         for f in findings:
             sev = str(f.get("severity", "LOW")).upper()
@@ -341,26 +328,187 @@ def synthesis_node(state: BastionState) -> dict:
             elif sev == "LOW": score += 0.08
             elif sev == "INFO": score += 0.05
             else: score += 0.1
-
         ioc_bonus = min(0.2, len(iocs) * 0.03)
         score += ioc_bonus
-
         if findings and score < 0.15:
             score = 0.15
-
         risk_score = min(1.0, score)
+
+        sev_breakdown = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+        for f in findings:
+            sev = str(f.get("severity", "INFO")).upper()
+            sev_breakdown[sev] = sev_breakdown.get(sev, 0) + 1
+
+        pipe_logs.append(make_log(
+            "synthesis", "🎯 Risk Score Computed",
+            f"Score: {risk_score*100:.0f}% | CRITICAL={sev_breakdown['CRITICAL']} HIGH={sev_breakdown['HIGH']} "
+            f"MEDIUM={sev_breakdown['MEDIUM']} LOW={sev_breakdown['LOW']} | IOC bonus: +{ioc_bonus*100:.0f}pts.",
+            status="ok" if risk_score < 0.5 else "warn",
+        ))
+        pipe_logs.append(make_log("synthesis", "✅ Synthesis Complete",
+            f"Report: {len(final_report)} chars. Risk: {risk_score*100:.0f}%.", status="ok"))
 
     except Exception:
         log.exception("synthesis.error")
-        final_report = "Error generating final synthesis report."
-        risk_score = 0.5
+        pipe_logs.append(make_log("synthesis", "❌ Synthesis Error",
+            "Unexpected exception during report generation.", status="error"))
 
     return {
         "final_report": final_report,
         "risk_score": risk_score,
         "messages": [AIMessage(content="[Synthesis] Final report generated successfully.")],
-        "pipeline_logs": [
-            {"node": "synthesis", "action": "Generating executive report", "detail": f"Synthesizing {len(findings)} findings and {len(iocs)} IOCs | Datasources: {', '.join(datasource_types)} | Enrichment: {enrichment_status}", "ts": ts_now},
-            {"node": "synthesis", "action": "Risk score computed", "detail": f"Final risk score: {(risk_score*100):.0f}% — Report length: {len(final_report)} chars", "ts": ts_now},
-        ],
+        "pipeline_logs": pipe_logs,
+    }
+
+
+def synthesis_node(state):
+    """Synthesis node for LangGraph."""
+    from langchain_core.messages import AIMessage
+    log = logger.bind(agent="synthesis", event_type=state.get("event_type"))
+    log.info("synthesis.start")
+    pipe_logs = []
+
+    findings = state.get("findings", [])
+    iocs = state.get("iocs", [])
+
+    pipe_logs.append(make_log(
+        "synthesis", "\U0001f4ca Synthesis Agent Started",
+        "Aggregating: {} finding(s) from {} | {} IOC(s).".format(
+            len(findings),
+            ", ".join(sorted(set(f.get("agent", "?") for f in findings))) or "none",
+            len(iocs),
+        ),
+        status="running",
+    ))
+
+    if not findings and not iocs:
+        pipe_logs.append(make_log(
+            "synthesis", "\u2705 Synthesis Complete \u2014 No Findings",
+            "No significant findings or IOCs detected. Event appears benign.",
+            status="ok",
+        ))
+        return {
+            "final_report": "No significant findings or anomalies detected during analysis.",
+            "messages": [AIMessage(content="[Synthesis] No findings to report.")],
+            "pipeline_logs": pipe_logs,
+        }
+
+    ts_earliest, ts_latest = _extract_incident_timestamp(state)
+    incident_window = ts_earliest if ts_earliest == ts_latest else "{} \u2013 {}".format(ts_earliest, ts_latest)
+    datasource_types = _detect_datasource_types(state)
+    enrichment_status = _check_enrichment_status(state)
+
+    pipe_logs.append(make_log(
+        "synthesis", "\U0001f5d3\ufe0f Incident Metadata Extracted",
+        "Incident window: {} | Datasources: {} | Enrichment: {}.".format(
+            incident_window, ", ".join(datasource_types), enrichment_status),
+        status="ok",
+    ))
+    log.info("synthesis.metadata", incident_window=incident_window,
+             datasources=datasource_types, enrichment=enrichment_status)
+
+    final_report = "Error generating final synthesis report."
+    risk_score = 0.5
+
+    try:
+        metadata_block = (
+            "=== INCIDENT METADATA ===\nINCIDENT_WINDOW: {}\n"
+            "ACTUAL_DATASOURCES: {}\nENRICHMENT_STATUS: {}\n"
+            "TOTAL_FINDINGS: {}\nTOTAL_IOCS: {}\n=== END METADATA ===\n\n"
+        ).format(incident_window, ", ".join(datasource_types), enrichment_status, len(findings), len(iocs))
+
+        user_message = (
+            "{}Please synthesize the following security findings into a final report:\n\nFindings: {}\n\nIOCs: {}"
+        ).format(metadata_block, findings, iocs)
+
+        from bastion.services.gemini import call_gemini
+
+        pipe_logs.append(make_log(
+            "synthesis", "\U0001f916 Generating Executive Report via Gemini",
+            "Sending {} finding(s) and {} IOC(s) to Gemini. Datasources: {}.".format(
+                len(findings), len(iocs), ", ".join(datasource_types)),
+            status="running",
+        ))
+
+        final_report = call_gemini(prompt=user_message, system_prompt=SYNTHESIS_SYSTEM_PROMPT)
+        final_report = final_report.replace("INCIDENT_WINDOW_PLACEHOLDER", incident_window)
+
+        from bastion.services.report_validator import validate_report, format_violations_for_repair
+
+        pipe_logs.append(make_log("synthesis", "\U0001f50e Claim Validator Running",
+            "Checking report for hallucinations, deprecated MITRE IDs, datasource mismatches...",
+            status="running"))
+
+        validation = validate_report(report=final_report, datasources=datasource_types, enrichment_status=enrichment_status)
+        final_report = validation.report
+        log.info("synthesis.validation", total_violations=len(validation.violations),
+                 auto_fixed=validation.auto_fixed, has_remaining_errors=validation.has_errors)
+
+        pipe_logs.append(make_log(
+            "synthesis",
+            "\u2705 Claim Validator Complete" if not validation.has_errors else "\u26a0\ufe0f Claim Validator: Errors Found",
+            "{} violation(s). Auto-fixed: {}. Remaining errors: {}.".format(
+                len(validation.violations), validation.auto_fixed,
+                "yes" if validation.has_errors else "none"),
+            status="ok" if not validation.has_errors else "warn",
+        ))
+
+        if validation.has_errors:
+            repair_instructions = format_violations_for_repair(validation.violations)
+            if repair_instructions:
+                log.info("synthesis.repair_pass", unfixed_errors=repair_instructions.count("\n"))
+                pipe_logs.append(make_log("synthesis", "\U0001f527 Repair Pass: Re-writing Report",
+                    "Fixing {} policy violation(s)...".format(repair_instructions.count(chr(10))), status="warn"))
+                repair_prompt = (
+                    "Your draft report has policy violations. Rewrite fixing ONLY these.\n\n{}\n\n=== DRAFT ===\n{}"
+                ).format(repair_instructions, final_report)
+                final_report = call_gemini(prompt=repair_prompt, system_prompt=SYNTHESIS_SYSTEM_PROMPT)
+                final_report = final_report.replace("INCIDENT_WINDOW_PLACEHOLDER", incident_window)
+                rv = validate_report(report=final_report, datasources=datasource_types, enrichment_status=enrichment_status)
+                final_report = rv.report
+                log.info("synthesis.repair_validation",
+                         remaining_violations=len(rv.violations),
+                         remaining_errors=sum(1 for v in rv.violations if v.severity == "ERROR"))
+
+        log.info("synthesis.complete", report_length=len(final_report))
+
+        score = 0.0
+        for f in findings:
+            sev = str(f.get("severity", "LOW")).upper()
+            if sev == "CRITICAL": score += 0.4
+            elif sev == "HIGH": score += 0.25
+            elif sev == "MEDIUM": score += 0.15
+            elif sev == "LOW": score += 0.08
+            elif sev == "INFO": score += 0.05
+            else: score += 0.1
+        ioc_bonus = min(0.2, len(iocs) * 0.03)
+        score += ioc_bonus
+        if findings and score < 0.15:
+            score = 0.15
+        risk_score = min(1.0, score)
+
+        sb = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0, "INFO": 0}
+        for f in findings:
+            k = str(f.get("severity", "INFO")).upper()
+            sb[k] = sb.get(k, 0) + 1
+
+        pipe_logs.append(make_log(
+            "synthesis", "\U0001f3af Risk Score Computed",
+            "Score: {:.0f}% | CRITICAL={} HIGH={} MEDIUM={} LOW={} | IOC bonus: +{:.0f}pts.".format(
+                risk_score * 100, sb["CRITICAL"], sb["HIGH"], sb["MEDIUM"], sb["LOW"], ioc_bonus * 100),
+            status="ok" if risk_score < 0.5 else "warn",
+        ))
+        pipe_logs.append(make_log("synthesis", "\u2705 Synthesis Complete",
+            "Report: {} chars. Risk: {:.0f}%.".format(len(final_report), risk_score * 100), status="ok"))
+
+    except Exception:
+        log.exception("synthesis.error")
+        pipe_logs.append(make_log("synthesis", "\u274c Synthesis Error",
+            "Unexpected exception during report generation.", status="error"))
+
+    return {
+        "final_report": final_report,
+        "risk_score": risk_score,
+        "messages": [AIMessage(content="[Synthesis] Final report generated successfully.")],
+        "pipeline_logs": pipe_logs,
     }

@@ -25,7 +25,7 @@ from bastion.agents.threat_intel.tools import (
     virustotal_lookup,
     whois_domain_lookup,
 )
-from bastion.logger import get_logger
+from bastion.logger import get_logger, make_log
 from bastion.models.state import BastionState
 
 logger = get_logger(__name__)
@@ -57,10 +57,22 @@ def threat_intel_node(state: BastionState) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     iocs = state.get("iocs", [])
     existing_findings = state.get("findings", [])
+    pipe_logs: list[dict] = []
 
+    pipe_logs.append(make_log(
+        "threat_intel", "🔍 Threat Intel Started",
+        f"IOCs received from shared state: {len(iocs)}. "
+        f"Types: {', '.join(sorted(set(i.get('ioc_type','?') for i in iocs))) or 'none'}.",
+        status="running",
+    ))
     log.info("threat_intel.iocs_received", ioc_count=len(iocs))
 
-    # ── Tier 1: Static IOC Filter ───────────────────────────────────────
+    # ── Tier 1: Static IOC Filter ───────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "threat_intel", "⚙️ Tier 1: IOC Pre-filter Running",
+        f"Filtering {len(iocs)} IOCs — removing private IPs, whitelisted domains, benign hashes...",
+        status="running",
+    ))
     tier1_result = run_ioc_filter(iocs)
 
     if tier1_result.decision == "SKIP":
@@ -68,7 +80,24 @@ def threat_intel_node(state: BastionState) -> dict:
             "threat_intel.tier1_skip",
             skipped=len(tier1_result.skipped_iocs),
         )
-        return _build_skip_response(tier1_result, now)
+        pipe_logs.append(make_log(
+            "threat_intel", "✅ Tier 1: All IOCs Benign/Whitelisted — Skipping Enrichment",
+            f"All {len(tier1_result.skipped_iocs)} IOCs are private/whitelisted. "
+            f"No threat enrichment needed. Skipping Tier 2 (no LLM cost).",
+            status="ok",
+        ))
+        result = _build_skip_response(tier1_result, now)
+        result.setdefault("pipeline_logs", [])
+        result["pipeline_logs"] = pipe_logs + result["pipeline_logs"]
+        return result
+
+    pipe_logs.append(make_log(
+        "threat_intel", "⚠️ Tier 1: IOCs Require Enrichment",
+        f"{len(tier1_result.filtered_iocs)} IOC(s) need enrichment. "
+        f"Static risk score: {tier1_result.static_risk_score}. "
+        f"Indicators: {', '.join(tier1_result.static_risk_indicators[:4])}{'...' if len(tier1_result.static_risk_indicators) > 4 else ''}.",
+        status="warn",
+    ))
 
     log.info(
         "threat_intel.tier1_analyze",
@@ -78,15 +107,39 @@ def threat_intel_node(state: BastionState) -> dict:
     )
 
     # ── Tier 2: ReAct Agent ─────────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "threat_intel", "🤖 Tier 2: Gemini ReAct Enrichment Agent Starting",
+        f"Tools: VirusTotal, AbuseIPDB, WHOIS, GeoIP. "
+        f"Enriching {len(tier1_result.filtered_iocs)} IOC(s). Max steps: {MAX_REACT_STEPS}.",
+        status="running",
+    ))
     try:
         analysis = _run_react_agent(
             tier1_result, existing_findings, log,
         )
+        pipe_logs.append(make_log(
+            "threat_intel", "✅ Tier 2: Enrichment Complete",
+            f"Verdict: {analysis.status} | Confidence: {analysis.confidence_score:.0%} | "
+            f"Enrichments: {len(analysis.ioc_enrichments)} IOC(s). "
+            f"MITRE: {', '.join(analysis.mitre_tactics) or 'N/A'}.",
+            status="ok" if analysis.status == "BENIGN" else "warn",
+        ))
     except Exception:
         log.exception("threat_intel.react_error")
+        pipe_logs.append(make_log(
+            "threat_intel", "❌ Tier 2: Enrichment Agent Error",
+            "ReAct agent failed. Using direct tool-based fallback enrichment.",
+            status="error",
+        ))
         analysis = _build_fallback_analysis(tier1_result)
 
     # ── Self-Reflection ─────────────────────────────────────────────────
+    pipe_logs.append(make_log(
+        "threat_intel", "🔁 Self-Reflection: Running",
+        f"Reviewing verdict '{analysis.status}' for potential false positives...",
+        status="running",
+    ))
+    pre_reflection_verdict = analysis.status
     try:
         analysis = _run_self_reflection(
             analysis, tier1_result, existing_findings, log,
@@ -94,8 +147,25 @@ def threat_intel_node(state: BastionState) -> dict:
     except Exception:
         log.exception("threat_intel.reflection_error")
 
+    if analysis.status != pre_reflection_verdict:
+        pipe_logs.append(make_log(
+            "threat_intel", "🔄 Self-Reflection: Verdict Revised",
+            f"{pre_reflection_verdict} → {analysis.status} "
+            f"(new confidence: {analysis.confidence_score:.0%})",
+            status="warn",
+        ))
+    else:
+        pipe_logs.append(make_log(
+            "threat_intel", "✅ Self-Reflection: Verdict Confirmed",
+            f"Verdict '{analysis.status}' confirmed at {analysis.confidence_score:.0%} confidence.",
+            status="ok",
+        ))
+
     # ── Build state updates ─────────────────────────────────────────────
-    return _build_response(analysis, tier1_result, now)
+    result = _build_response(analysis, tier1_result, now)
+    result.setdefault("pipeline_logs", [])
+    result["pipeline_logs"] = pipe_logs + result["pipeline_logs"]
+    return result
 
 
 # ── Tier 2: ReAct Agent ────────────────────────────────────────────────
