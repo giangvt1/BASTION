@@ -29,17 +29,6 @@ export const RightPanel = ({ selectedAgentId, onClearSelection }: { selectedAgen
     return () => clearInterval(interval);
   }, [selectedAgentId]);
 
-  const getIconForType = (type: string) => {
-    switch (type) {
-      case 'delegation': return 'play_arrow';
-      case 'artifact': return 'edit_document';
-      case 'enrichment': return 'verified';
-      case 'synthesis': return 'auto_fix_high';
-      case 'error': return 'error';
-      default: return 'circle';
-    }
-  };
-
   return (
     <aside className="w-full lg:w-80 border-l border-slate-200 dark:border-primary/10 p-6 flex flex-col gap-6 overflow-y-auto bg-white/50 dark:bg-transparent">
       {selectedAgentId ? (
