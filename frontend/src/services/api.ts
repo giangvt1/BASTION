@@ -6,19 +6,18 @@ const apiFetch = (url: string, options: RequestInit = {}) => {
   const method = (options.method || 'GET').toUpperCase();
   const needsJson = !isFormData && method !== 'GET' && method !== 'HEAD';
 
-  // Append query param to bypass ngrok interstitial (doesn't trigger CORS preflight unlike a header)
-  const finalUrl = url.includes('ngrok')
-    ? url + (url.includes('?') ? '&' : '?') + 'ngrok-skip-browser-warning=1'
-    : url;
-
-  return fetch(finalUrl, {
+  return fetch(url, {
     ...options,
     headers: {
+      // Accept is a CORS-safe header — does NOT trigger preflight
+      // AND ngrok detects it as an API client, skipping its HTML interstitial
+      'Accept': 'application/json',
       ...(needsJson ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {}),
     },
   });
 };
+
 
 
 export const fetchReports = async (): Promise<{ reports: Report[], count: number }> => {
