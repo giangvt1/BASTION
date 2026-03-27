@@ -37,28 +37,14 @@ logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
 
 app = FastAPI(title="BASTION Local API")
 
-# Enable CORS — custom middleware to handle ngrok preflight interception
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
-from starlette.responses import Response as StarletteResponse
-
-CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-    "Access-Control-Allow-Headers": "*",
-    "Access-Control-Max-Age": "86400",
-}
-
-class CORSHandlerMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: StarletteRequest, call_next):
-        if request.method == "OPTIONS":
-            return StarletteResponse(status_code=204, headers=CORS_HEADERS)
-        response = await call_next(request)
-        for k, v in CORS_HEADERS.items():
-            response.headers[k] = v
-        return response
-
-app.add_middleware(CORSHandlerMiddleware)
+# Enable CORS for the React frontend (Cloudflare Tunnel passes through correctly)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # In-memory store for local testing instead of DynamoDB
 reports_db: Dict[str, Any] = {}
