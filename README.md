@@ -307,7 +307,6 @@ notebooks/
 
 ---
 
-Deployment Url: https://main.dees6ffaimygn.amplifyapp.com/
 
 ## Team
 
