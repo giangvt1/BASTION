@@ -1,6 +1,6 @@
 # BASTION
 
-**B**ehavioral **A**nalysis & **S**ecurity **T**hreat **I**ntelligence **O**rchestration **N**ode
+**B**anking **A**gentic & **S**ecurity **T**hreat **I**ntelligence **O**rchestration **N**etwork
 
 > Autonomous AI-Powered SOC Platform for Real-Time Incident Response
 
